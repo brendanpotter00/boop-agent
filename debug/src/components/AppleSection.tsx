@@ -87,11 +87,57 @@ export function AppleSection({ isDark }: { isDark: boolean }) {
     }
   }
 
+  async function requestNotesAccess() {
+    setBusy("Notes");
+    setMessage(null);
+    try {
+      const res = await fetch("/api/apple/request-notes-access", { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `status ${res.status}`);
+      }
+      const nextStatus = (await res.json()) as AppleStatus;
+      setStatus(nextStatus);
+      const notes = nextStatus.bridge.permissions?.notes;
+      setMessage({
+        tone: notes === "granted" ? "ok" : "err",
+        text: notes === "granted"
+          ? "Apple Notes access is live."
+          : "Apple Notes access still needs macOS Automation permission.",
+      });
+    } catch (err) {
+      setMessage({ tone: "err", text: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function openAutomationSettings() {
+    setBusy("Automation");
+    setMessage(null);
+    try {
+      const res = await fetch("/api/apple/open-automation-settings", { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `status ${res.status}`);
+      }
+      setMessage({
+        tone: "ok",
+        text: "Opened Automation settings. Enable Notes for Codex, Terminal, or the app running Boop.",
+      });
+    } catch (err) {
+      setMessage({ tone: "err", text: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const muted = isDark ? "text-zinc-400" : "text-zinc-500";
   const subtle = isDark ? "text-zinc-500" : "text-zinc-400";
   const label = isDark ? "text-zinc-50" : "text-zinc-950";
   const bridge = status?.bridge ?? null;
   const running = bridge?.running ?? false;
+  const notesPermission = bridge?.permissions?.notes ?? "notDetermined";
   const showAppleSection =
     !loaded || bridge?.source === "local-server" || bridge?.source === "desktop-bridge";
 
@@ -151,11 +197,13 @@ export function AppleSection({ isDark }: { isDark: boolean }) {
                 }`}
               >
                 <span className="h-2 w-2 rounded-full bg-emerald-400" />
-              {bridge?.source === "local-server" ? "Local server connected" : "Apple bridge connected"}
+              {bridge?.source === "local-server"
+                ? localServerLabel(bridge.permissions)
+                : "Apple bridge connected"}
               </span>
               {bridge?.version && (
                 <span className={`text-[11px] mono ${isDark ? "text-emerald-300/80" : "text-emerald-700/80"}`}>
-                  v{bridge.version}
+                  {formatVersion(bridge.version)}
                 </span>
               )}
             </div>
@@ -180,10 +228,64 @@ export function AppleSection({ isDark }: { isDark: boolean }) {
             )}
           </div>
         )}
+        {enabled && running && bridge?.source === "local-server" && notesPermission !== "granted" && (
+          <div
+            className={`mt-3 rounded-2xl border px-3 py-3 text-xs leading-relaxed ${
+              notesPermission === "denied"
+                ? isDark
+                  ? "border-rose-500/25 bg-rose-500/10 text-rose-200"
+                  : "border-rose-200 bg-rose-50 text-rose-700"
+                : isDark
+                  ? "border-amber-500/25 bg-amber-500/10 text-amber-200"
+                  : "border-amber-200 bg-amber-50 text-amber-800"
+            }`}
+          >
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <span>
+                Enable read-only Apple Notes by allowing macOS Automation access to Notes.
+              </span>
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={requestNotesAccess}
+                  disabled={busy !== null}
+                  className={`rounded-xl px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                    isDark
+                      ? "bg-zinc-100 text-zinc-950 hover:bg-white disabled:opacity-50"
+                      : "bg-zinc-950 text-white hover:bg-zinc-800 disabled:opacity-50"
+                  }`}
+                >
+                  {busy === "Notes" ? "Checking..." : "Enable Notes"}
+                </button>
+                <button
+                  type="button"
+                  onClick={openAutomationSettings}
+                  disabled={busy !== null}
+                  className={`rounded-xl border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                    isDark
+                      ? "border-white/10 text-zinc-300 hover:bg-white/5 disabled:opacity-50"
+                      : "border-zinc-200 text-zinc-600 hover:bg-zinc-100 disabled:opacity-50"
+                  }`}
+                >
+                  Automation Settings
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {message && <MessageLine message={message} isDark={isDark} />}
       </div>
     </section>
   );
+}
+
+function localServerLabel(permissions: ApplePermissions | null): string {
+  const messagesLive = permissions?.messages === "granted";
+  const notesLive = permissions?.notes === "granted";
+  if (messagesLive && notesLive) return "Local server connected (iMessage + Notes live)";
+  if (messagesLive) return "Local server connected (iMessage live, Notes pending)";
+  if (notesLive) return "Local server connected (Notes live)";
+  return "Local server connected";
 }
 
 function PermissionChip({
@@ -221,6 +323,10 @@ function PermissionChip({
   );
 }
 
+function formatVersion(version: string): string {
+  return version.startsWith("v") ? version : `v${version}`;
+}
+
 function BridgePill({
   running,
   version,
@@ -243,7 +349,7 @@ function BridgePill({
       }`}
     >
       <span className={`h-2 w-2 rounded-full ${running ? "bg-emerald-400" : "bg-zinc-400"}`} />
-      {running ? `Connected${version ? ` v${version}` : ""}` : "Not connected"}
+      {running ? `Connected${version ? ` ${formatVersion(version)}` : ""}` : "Not connected"}
     </span>
   );
 }

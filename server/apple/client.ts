@@ -6,6 +6,7 @@ import {
   LOCAL_MESSAGES_UNSUPPORTED_MESSAGE,
   probeLocalMessagesAccess,
 } from "./messages-local.js";
+import { getCachedLocalNotesAccess } from "./notes-local.js";
 
 const REQUEST_TIMEOUT_MS = 10_000;
 
@@ -128,6 +129,7 @@ async function localServerStatus(): Promise<AppleBridgeStatus> {
     };
   }
   const messages = await probeLocalMessagesAccess();
+  const notes = getCachedLocalNotesAccess();
   return {
     running: true,
     source: "local-server",
@@ -137,7 +139,7 @@ async function localServerStatus(): Promise<AppleBridgeStatus> {
       messages,
       calendars: "notDetermined",
       reminders: "notDetermined",
-      notes: "notDetermined",
+      notes,
     },
     error: messages === "granted" ? null : LOCAL_MESSAGES_FULL_DISK_ACCESS_MESSAGE,
   };

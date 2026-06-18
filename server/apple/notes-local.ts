@@ -7,12 +7,17 @@ const OSASCRIPT_BIN = "/usr/bin/osascript";
 const NOTES_TIMEOUT_MS = 15_000;
 const NOTES_MAX_BUFFER = 5 * 1024 * 1024;
 const NOTE_BODY_LIMIT = 40_000;
+const NOTES_ACCESS_PROBE_QUERY = "__boop_notes_access_probe__";
 
 export const LOCAL_NOTES_UNSUPPORTED_MESSAGE =
   "Local Apple Notes reads are only available on macOS.";
 
 export const LOCAL_NOTES_ACCESS_MESSAGE =
   "Boop needs macOS Automation permission to read Apple Notes. When prompted, allow the app running Boop to control Notes, or open System Settings -> Privacy & Security -> Automation and enable Notes for Codex/Terminal. Access is read-only.";
+
+export type LocalNotesPermission = "granted" | "denied" | "notDetermined";
+
+let cachedNotesPermission: LocalNotesPermission = "notDetermined";
 
 interface RawNoteSummary {
   id: string;
@@ -101,6 +106,7 @@ async function runNotesScript<T>(script: string, env: Record<string, string>): P
     );
     const trimmed = stdout.trim();
     if (!trimmed) throw new Error("Apple Notes returned an empty response.");
+    cachedNotesPermission = "granted";
     return JSON.parse(trimmed) as T;
   } catch (err) {
     if (err instanceof SyntaxError) {
@@ -126,6 +132,25 @@ export async function searchLocalNotes(query: string, limit?: number): Promise<L
     modifiedAt: row.modifiedAt,
     snippet: row.snippet,
   }));
+}
+
+export function getCachedLocalNotesAccess(): LocalNotesPermission {
+  if (!isMac()) return "denied";
+  return cachedNotesPermission;
+}
+
+export async function requestLocalNotesAccess(): Promise<LocalNotesPermission> {
+  if (!isMac() || !existsSync(OSASCRIPT_BIN)) {
+    cachedNotesPermission = "denied";
+    return cachedNotesPermission;
+  }
+  try {
+    await searchLocalNotes(NOTES_ACCESS_PROBE_QUERY, 1);
+    cachedNotesPermission = "granted";
+  } catch {
+    cachedNotesPermission = "denied";
+  }
+  return cachedNotesPermission;
 }
 
 export async function readLocalNote(noteId: string): Promise<LocalNote> {

@@ -11,6 +11,7 @@ import {
   getAppleSettings,
 } from "./runtime-config.js";
 import { getAppleBridgeStatus, type AppleBridgeStatus } from "./apple/client.js";
+import { requestLocalNotesAccess } from "./apple/notes-local.js";
 
 interface AppleStatusResponse {
   enabled: boolean;
@@ -20,6 +21,8 @@ interface AppleStatusResponse {
 const execFileAsync = promisify(execFile);
 const FULL_DISK_ACCESS_URL =
   "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles";
+const AUTOMATION_URL =
+  "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation";
 
 function requireLocalAppleControl(req: Request, res: Response, next: NextFunction): void {
   if (isLocalBrowserControlRequest(req.headers, req.socket.remoteAddress ?? "")) {
@@ -56,6 +59,13 @@ async function openFullDiskAccessSettings(): Promise<void> {
   await execFileAsync("open", [FULL_DISK_ACCESS_URL], { timeout: 5_000 });
 }
 
+async function openAutomationSettings(): Promise<void> {
+  if (process.platform !== "darwin") {
+    throw new Error("Automation settings are only available on macOS.");
+  }
+  await execFileAsync("open", [AUTOMATION_URL], { timeout: 5_000 });
+}
+
 export function createAppleRouter(): express.Router {
   const router = express.Router();
   router.use(requireLocalAppleControl);
@@ -87,6 +97,24 @@ export function createAppleRouter(): express.Router {
   router.post("/open-full-disk-access", async (_req, res) => {
     try {
       await openFullDiskAccessSettings();
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/request-notes-access", async (_req, res) => {
+    try {
+      await requestLocalNotesAccess();
+      res.json(await appleStatus());
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/open-automation-settings", async (_req, res) => {
+    try {
+      await openAutomationSettings();
       res.json({ ok: true });
     } catch (err) {
       res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
