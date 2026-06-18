@@ -102,8 +102,9 @@ async function runNotesScript<T>(script: string, env: Record<string, string>): P
     throw new Error("osascript is required to read Apple Notes, but /usr/bin/osascript was not found.");
   }
 
+  let stdout: string;
   try {
-    const { stdout } = await execFileAsync(
+    ({ stdout } = await execFileAsync(
       OSASCRIPT_BIN,
       ["-e", script],
       {
@@ -111,16 +112,22 @@ async function runNotesScript<T>(script: string, env: Record<string, string>): P
         maxBuffer: NOTES_MAX_BUFFER,
         env: { ...process.env, ...env },
       },
-    );
-    const trimmed = stdout.trim();
-    if (!trimmed) throw new Error("Apple Notes returned an empty response.");
+    ));
+  } catch (err) {
+    throw normalizeNotesError(err);
+  }
+
+  const trimmed = stdout.trim();
+  if (!trimmed) throw new Error("Apple Notes returned an empty response.");
+  try {
+    const parsed = JSON.parse(trimmed) as T;
     cachedNotesPermission = "granted";
-    return JSON.parse(trimmed) as T;
+    return parsed;
   } catch (err) {
     if (err instanceof SyntaxError) {
       throw new Error(`Apple Notes returned unreadable data: ${err.message}`);
     }
-    throw normalizeNotesError(err);
+    throw err;
   }
 }
 

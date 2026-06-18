@@ -193,7 +193,7 @@ export async function getAppleBridgeStatus(
     };
   } catch (err) {
     const local = await localServerStatus(options);
-    if (local.permissions?.messages === "granted") return local;
+    if (local.source === "local-server") return local;
     return {
       running: false,
       source: "unavailable",

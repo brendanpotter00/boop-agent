@@ -104,8 +104,9 @@ async function runRemindersScript<T>(script: string, env: Record<string, string>
     throw new Error("osascript is required to read Apple Reminders, but /usr/bin/osascript was not found.");
   }
 
+  let stdout: string;
   try {
-    const { stdout } = await execFileAsync(
+    ({ stdout } = await execFileAsync(
       OSASCRIPT_BIN,
       ["-e", script],
       {
@@ -113,16 +114,22 @@ async function runRemindersScript<T>(script: string, env: Record<string, string>
         maxBuffer: REMINDERS_MAX_BUFFER,
         env: { ...process.env, ...env },
       },
-    );
-    const trimmed = stdout.trim();
-    if (!trimmed) throw new Error("Apple Reminders returned an empty response.");
+    ));
+  } catch (err) {
+    throw normalizeRemindersError(err);
+  }
+
+  const trimmed = stdout.trim();
+  if (!trimmed) throw new Error("Apple Reminders returned an empty response.");
+  try {
+    const parsed = JSON.parse(trimmed) as T;
     cachedRemindersPermission = "granted";
-    return JSON.parse(trimmed) as T;
+    return parsed;
   } catch (err) {
     if (err instanceof SyntaxError) {
       throw new Error(`Apple Reminders returned unreadable data: ${err.message}`);
     }
-    throw normalizeRemindersError(err);
+    throw err;
   }
 }
 
