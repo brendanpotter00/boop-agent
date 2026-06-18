@@ -170,8 +170,11 @@ export async function requestLocalRemindersAccess(): Promise<LocalRemindersPermi
     await runRemindersScript<{ ok: boolean }>(REQUEST_REMINDERS_ACCESS_SCRIPT, {});
     cachedRemindersPermission = "granted";
   } catch (err) {
-    if (!isPermissionError(err)) throw err;
-    cachedRemindersPermission = "denied";
+    cachedRemindersPermission = isPermissionError(err)
+      ? "denied"
+      : cachedRemindersPermission === "granted"
+        ? "granted"
+        : "notDetermined";
   }
   return cachedRemindersPermission;
 }

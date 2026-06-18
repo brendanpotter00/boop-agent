@@ -163,8 +163,11 @@ export async function requestLocalNotesAccess(): Promise<LocalNotesPermission> {
     await runNotesScript<{ ok: boolean }>(REQUEST_NOTES_ACCESS_SCRIPT, {});
     cachedNotesPermission = "granted";
   } catch (err) {
-    if (!isPermissionError(err)) throw err;
-    cachedNotesPermission = "denied";
+    cachedNotesPermission = isPermissionError(err)
+      ? "denied"
+      : cachedNotesPermission === "granted"
+        ? "granted"
+        : "notDetermined";
   }
   return cachedNotesPermission;
 }
