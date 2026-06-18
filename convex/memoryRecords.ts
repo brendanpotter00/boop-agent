@@ -191,6 +191,29 @@ export const setLifecycle = mutation({
   },
 });
 
+export const remove = mutation({
+  args: { memoryId: v.string() },
+  handler: async (ctx, args) => {
+    const mem = await ctx.db
+      .query("memoryRecords")
+      .withIndex("by_memory_id", (q) => q.eq("memoryId", args.memoryId))
+      .unique();
+    if (!mem) return null;
+    await ctx.db.delete(mem._id);
+    await ctx.db.insert("memoryEvents", {
+      eventType: "memory.deleted",
+      memoryId: args.memoryId,
+      data: JSON.stringify({
+        tier: mem.tier,
+        segment: mem.segment,
+        lifecycle: mem.lifecycle,
+      }),
+      createdAt: Date.now(),
+    });
+    return mem._id;
+  },
+});
+
 const COUNTS_SCAN_LIMIT = 5000;
 
 export const embeddingStats = query({

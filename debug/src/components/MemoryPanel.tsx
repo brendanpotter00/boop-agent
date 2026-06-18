@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Delete02Icon } from "@hugeicons/core-free-icons";
 import { api } from "../../../convex/_generated/api.js";
 import type { Id } from "../../../convex/_generated/dataModel.js";
 import MemoryGraphView from "./MemoryGraphView.js";
@@ -80,6 +82,8 @@ export function MemoryPanel({ isDark }: { isDark: boolean }) {
   const [segmentFilter, setSegmentFilter] = useState<Segment>("all");
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const removeMemory = useMutation(api.memoryRecords.remove);
 
   const records = useQuery(api.memoryRecords.list, {
     tier: tierFilter !== "all" ? (tierFilter as any) : undefined,
@@ -108,11 +112,22 @@ export function MemoryPanel({ isDark }: { isDark: boolean }) {
     ? "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
     : "text-zinc-500 hover:bg-white/70 hover:text-zinc-800";
 
+  async function deleteMemory(memoryId: string) {
+    if (!confirm("Permanently delete this memory?")) return;
+    setDeletingId(memoryId);
+    try {
+      await removeMemory({ memoryId });
+      if (expandedId === memoryId) setExpandedId(null);
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   return (
     <PanelPage
       eyebrow="Store"
       title="Memory"
-      description="Search, filter, and inspect the active memory store."
+      description="Search, filter, inspect, and delete active memories."
       stat={<HeaderPill isDark={isDark}>{filtered.length}/{allRecords.length}</HeaderPill>}
       maxWidth={viewMode === "graph" ? "max-w-none" : "max-w-[1040px]"}
     >
@@ -258,6 +273,22 @@ export function MemoryPanel({ isDark }: { isDark: boolean }) {
                       >
                         {r.accessCount ?? 0}x
                       </span>
+                      <button
+                        type="button"
+                        title="Delete memory"
+                        disabled={deletingId === r.memoryId}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void deleteMemory(r.memoryId);
+                        }}
+                        className={`ml-1 inline-flex h-7 w-7 items-center justify-center rounded-lg border transition-colors disabled:opacity-50 ${
+                          isDark
+                            ? "border-rose-500/20 text-rose-300 hover:bg-rose-500/10"
+                            : "border-rose-200 text-rose-600 hover:bg-rose-50"
+                        }`}
+                      >
+                        <HugeiconsIcon icon={Delete02Icon} size={14} strokeWidth={1.8} />
+                      </button>
                     </div>
 
                     <p
