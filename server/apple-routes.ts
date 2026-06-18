@@ -45,10 +45,11 @@ function requireLocalAppleControl(req: Request, res: Response, next: NextFunctio
 }
 
 async function appleStatus(): Promise<AppleStatusResponse> {
-  const [settings, bridge] = await Promise.all([
-    getAppleSettings(),
-    getAppleBridgeStatus(),
-  ]);
+  const settings = await getAppleSettings();
+  const bridge = await getAppleBridgeStatus({
+    probeNotes: settings.notesEnabled,
+    probeReminders: settings.remindersEnabled,
+  });
   return {
     enabled: settings.enabled,
     messagesEnabled: settings.messagesEnabled,

@@ -796,14 +796,6 @@ function IMessageConnectionCard({
             <span className={`text-sm font-medium ${isDark ? "text-zinc-100" : "text-zinc-900"}`}>
               iMessage
             </span>
-            <span className={`text-xs mono ${muted}`}>apple.messages.read</span>
-            <span
-              className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
-                isDark ? "bg-zinc-100/10 text-zinc-300" : "bg-zinc-100 text-zinc-700"
-              }`}
-            >
-              Mac only
-            </span>
             <span
               className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
                 isDark ? "bg-emerald-400/10 text-emerald-300" : "bg-emerald-50 text-emerald-700"
@@ -820,11 +812,6 @@ function IMessageConnectionCard({
               <span className={`w-1.5 h-1.5 rounded-full ${state.dotClass}`} />
               {state.label}
             </span>
-            {bridge?.version && (
-              <span className={`text-[10px] mono ${muted}`}>
-                {bridge.source === "local-server" ? `server ${bridge.version}` : `bridge v${bridge.version}`}
-              </span>
-            )}
             {permission && permission !== "granted" && (
               <span className={`text-[10px] mono ${muted}`}>messages={permission}</span>
             )}
@@ -946,14 +933,6 @@ function AppleNotesConnectionCard({
             <span className={`text-sm font-medium ${isDark ? "text-zinc-100" : "text-zinc-900"}`}>
               Apple Notes
             </span>
-            <span className={`text-xs mono ${muted}`}>apple.notes.read</span>
-            <span
-              className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
-                isDark ? "bg-zinc-100/10 text-zinc-300" : "bg-zinc-100 text-zinc-700"
-              }`}
-            >
-              Mac only
-            </span>
             <span
               className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
                 isDark ? "bg-emerald-400/10 text-emerald-300" : "bg-emerald-50 text-emerald-700"
@@ -970,11 +949,6 @@ function AppleNotesConnectionCard({
               <span className={`w-1.5 h-1.5 rounded-full ${state.dotClass}`} />
               {state.label}
             </span>
-            {bridge?.version && (
-              <span className={`text-[10px] mono ${muted}`}>
-                {bridge.source === "local-server" ? `server ${bridge.version}` : `bridge v${bridge.version}`}
-              </span>
-            )}
             {permission && permission !== "granted" && (
               <span className={`text-[10px] mono ${muted}`}>notes={permission}</span>
             )}
@@ -1114,14 +1088,6 @@ function AppleRemindersConnectionCard({
             <span className={`text-sm font-medium ${isDark ? "text-zinc-100" : "text-zinc-900"}`}>
               Apple Reminders
             </span>
-            <span className={`text-xs mono ${muted}`}>apple.reminders.read</span>
-            <span
-              className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
-                isDark ? "bg-zinc-100/10 text-zinc-300" : "bg-zinc-100 text-zinc-700"
-              }`}
-            >
-              Mac only
-            </span>
             <span
               className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
                 isDark ? "bg-emerald-400/10 text-emerald-300" : "bg-emerald-50 text-emerald-700"
@@ -1138,11 +1104,6 @@ function AppleRemindersConnectionCard({
               <span className={`w-1.5 h-1.5 rounded-full ${state.dotClass}`} />
               {state.label}
             </span>
-            {bridge?.version && (
-              <span className={`text-[10px] mono ${muted}`}>
-                {bridge.source === "local-server" ? `server ${bridge.version}` : `bridge v${bridge.version}`}
-              </span>
-            )}
             {permission && permission !== "granted" && (
               <span className={`text-[10px] mono ${muted}`}>reminders={permission}</span>
             )}

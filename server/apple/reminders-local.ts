@@ -4,7 +4,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const OSASCRIPT_BIN = "/usr/bin/osascript";
-const REMINDERS_TIMEOUT_MS = 15_000;
+const REMINDERS_TIMEOUT_MS = 45_000;
 const REMINDERS_MAX_BUFFER = 5 * 1024 * 1024;
 
 export const LOCAL_REMINDERS_UNSUPPORTED_MESSAGE =
@@ -25,6 +25,8 @@ interface RawReminder {
   dueAt: string | null;
   completed: boolean;
   completedAt: string | null;
+  createdAt: string | null;
+  modifiedAt: string | null;
   priority: number | null;
 }
 
@@ -36,6 +38,8 @@ export interface LocalReminder {
   dueAt: string | null;
   completed: boolean;
   completedAt: string | null;
+  createdAt: string | null;
+  modifiedAt: string | null;
   priority: number | null;
 }
 
@@ -52,7 +56,7 @@ function isMac(): boolean {
 
 function capLimit(input: number | undefined, fallback: number): number {
   if (!Number.isFinite(input ?? NaN)) return fallback;
-  return Math.max(1, Math.min(Math.trunc(input!), 200));
+  return Math.max(1, Math.min(Math.trunc(input!), 20));
 }
 
 function capDays(input: number | undefined): number | null {
@@ -61,6 +65,10 @@ function capDays(input: number | undefined): number | null {
 }
 
 function normalizeRemindersError(err: unknown): Error {
+  const signal = typeof (err as { signal?: unknown })?.signal === "string"
+    ? (err as { signal: string }).signal
+    : "";
+  const killed = Boolean((err as { killed?: unknown })?.killed);
   const stderr = typeof (err as { stderr?: unknown })?.stderr === "string"
     ? ((err as { stderr: string }).stderr.trim())
     : "";
@@ -76,13 +84,18 @@ function normalizeRemindersError(err: unknown): Error {
   ) {
     return new Error(LOCAL_REMINDERS_ACCESS_MESSAGE);
   }
-  if (text.includes("timed out") || text.includes("SIGTERM")) {
-    return new Error(`${LOCAL_REMINDERS_ACCESS_MESSAGE} Reminders did not respond before the read timeout.`);
+  if (killed || signal === "SIGTERM" || text.includes("timed out") || text.includes("SIGTERM")) {
+    return new Error("Apple Reminders was too slow to return data before the read timeout. Try again with a smaller limit.");
   }
   if (text.includes("syntax error")) {
-    return new Error("Local Apple Reminders read failed: AppleScript syntax error.");
+    return new Error(`Local Apple Reminders read failed: AppleScript syntax error: ${text}`);
   }
   return new Error(`Local Apple Reminders read failed: ${text}`);
+}
+
+function isPermissionError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes(LOCAL_REMINDERS_ACCESS_MESSAGE);
 }
 
 async function runRemindersScript<T>(script: string, env: Record<string, string>): Promise<T> {
@@ -119,7 +132,7 @@ export async function listLocalReminders(filters: LocalReminderFilters = {}): Pr
     BOOP_REMINDERS_LIST: filters.list?.trim() ?? "",
     BOOP_REMINDERS_INCLUDE_COMPLETED: filters.includeCompleted ? "true" : "false",
     BOOP_REMINDERS_DUE_WITHIN_DAYS: dueWithinDays === null ? "" : String(dueWithinDays),
-    BOOP_REMINDERS_LIMIT: String(capLimit(filters.limit, 100)),
+    BOOP_REMINDERS_LIMIT: String(capLimit(filters.limit, 1)),
   });
 
   return rows.map((row) => ({
@@ -130,6 +143,8 @@ export async function listLocalReminders(filters: LocalReminderFilters = {}): Pr
     dueAt: row.dueAt,
     completed: row.completed,
     completedAt: row.completedAt,
+    createdAt: row.createdAt,
+    modifiedAt: row.modifiedAt,
     priority: row.priority,
   }));
 }
@@ -145,9 +160,10 @@ export async function requestLocalRemindersAccess(): Promise<LocalRemindersPermi
     return cachedRemindersPermission;
   }
   try {
-    await listLocalReminders({ includeCompleted: true, limit: 1 });
+    await runRemindersScript<{ ok: boolean }>(REQUEST_REMINDERS_ACCESS_SCRIPT, {});
     cachedRemindersPermission = "granted";
-  } catch {
+  } catch (err) {
+    if (!isPermissionError(err)) throw err;
     cachedRemindersPermission = "denied";
   }
   return cachedRemindersPermission;
@@ -179,6 +195,22 @@ on jsonNullableString(sourceValue)
   return my jsonString(sourceValue)
 end jsonNullableString
 
+on pad2(numberValue)
+  set textValue to numberValue as integer as text
+  if (count of characters of textValue) is 1 then return "0" & textValue
+  return textValue
+end pad2
+
+on localIsoDate(dateValue)
+  if dateValue is missing value then return ""
+  return ((year of dateValue as integer) as text) & "-" & my pad2(month of dateValue as integer) & "-" & my pad2(day of dateValue as integer) & "T" & my pad2(hours of dateValue as integer) & ":" & my pad2(minutes of dateValue as integer) & ":" & my pad2(seconds of dateValue as integer)
+end localIsoDate
+
+on jsonNullableDate(dateValue)
+  if dateValue is missing value then return "null"
+  return my jsonString(my localIsoDate(dateValue))
+end jsonNullableDate
+
 on joinJson(jsonItems)
   set AppleScript's text item delimiters to ","
   set resultText to jsonItems as text
@@ -186,61 +218,13 @@ on joinJson(jsonItems)
   return resultText
 end joinJson
 
-on reminderListName(aReminder)
-  try
-    return name of container of aReminder as text
-  on error
-    return "Reminders"
-  end try
-end reminderListName
+`;
 
-on reminderDueAt(aReminder)
-  try
-    set dueValue to due date of aReminder
-    if dueValue is not missing value then return dueValue as text
-  end try
-  try
-    set allDayValue to allday due date of aReminder
-    if allDayValue is not missing value then return allDayValue as text
-  end try
-  return ""
-end reminderDueAt
-
-on reminderDueDateValue(aReminder)
-  try
-    set dueValue to due date of aReminder
-    if dueValue is not missing value then return dueValue
-  end try
-  try
-    set allDayValue to allday due date of aReminder
-    if allDayValue is not missing value then return allDayValue
-  end try
-  return missing value
-end reminderDueDateValue
-
-on reminderCompletedAt(aReminder)
-  try
-    set completedValue to completion date of aReminder
-    if completedValue is not missing value then return completedValue as text
-  end try
-  return ""
-end reminderCompletedAt
-
-on reminderNotes(aReminder)
-  try
-    return body of aReminder as text
-  on error
-    return ""
-  end try
-end reminderNotes
-
-on reminderPriority(aReminder)
-  try
-    return priority of aReminder as integer
-  on error
-    return 0
-  end try
-end reminderPriority
+const REQUEST_REMINDERS_ACCESS_SCRIPT = String.raw`
+tell application "Reminders"
+  set reminderCount to count of reminders
+end tell
+return "{\"ok\":true}"
 `;
 
 const LIST_REMINDERS_SCRIPT = `${APPLESCRIPT_HELPERS}
@@ -268,21 +252,36 @@ tell application "Reminders"
       set listReminders to reminders of aList
       repeat with aReminder in listReminders
         if doneReading then exit repeat
-        set reminderCompleted to completed of aReminder
+        set reminderProps to properties of aReminder
+        set reminderCompleted to completed of reminderProps
         if includeCompleted or reminderCompleted is false then
-          set dueDateValue to my reminderDueDateValue(aReminder)
+          set dueDateValue to missing value
+          try
+            set dueDateValue to due date of reminderProps
+          end try
+          if dueDateValue is missing value then
+            try
+              set dueDateValue to allday due date of reminderProps
+            end try
+          end if
           if (hasDueFilter is false) or (dueDateValue is not missing value and dueDateValue is less than or equal to dueLimitDate) then
             set completedJson to "false"
             if reminderCompleted then set completedJson to "true"
+            set reminderNotes to body of reminderProps
+            set completedDateValue to completion date of reminderProps
+            set createdDateValue to creation date of reminderProps
+            set modifiedDateValue to modification date of reminderProps
             set rowJson to "{" & ¬
-              "\\"id\\":" & my jsonString(id of aReminder) & "," & ¬
-              "\\"list\\":" & my jsonString(my reminderListName(aReminder)) & "," & ¬
-              "\\"title\\":" & my jsonString(name of aReminder) & "," & ¬
-              "\\"notes\\":" & my jsonNullableString(my reminderNotes(aReminder)) & "," & ¬
-              "\\"dueAt\\":" & my jsonNullableString(my reminderDueAt(aReminder)) & "," & ¬
+              "\\"id\\":" & my jsonString(id of reminderProps) & "," & ¬
+              "\\"list\\":" & my jsonString(listName) & "," & ¬
+              "\\"title\\":" & my jsonString(name of reminderProps) & "," & ¬
+              "\\"notes\\":" & my jsonNullableString(reminderNotes) & "," & ¬
+              "\\"dueAt\\":" & my jsonNullableDate(dueDateValue) & "," & ¬
               "\\"completed\\":" & completedJson & "," & ¬
-              "\\"completedAt\\":" & my jsonNullableString(my reminderCompletedAt(aReminder)) & "," & ¬
-              "\\"priority\\":" & (my reminderPriority(aReminder) as text) & ¬
+              "\\"completedAt\\":" & my jsonNullableDate(completedDateValue) & "," & ¬
+              "\\"createdAt\\":" & my jsonNullableDate(createdDateValue) & "," & ¬
+              "\\"modifiedAt\\":" & my jsonNullableDate(modifiedDateValue) & "," & ¬
+              "\\"priority\\":" & ((priority of reminderProps) as text) & ¬
               "}"
             set end of outputRows to rowJson
             if (count of outputRows) is greater than or equal to maxItems then set doneReading to true

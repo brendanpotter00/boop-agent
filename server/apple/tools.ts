@@ -56,6 +56,8 @@ interface BridgeReminder {
   dueAt: string | null;
   completed: boolean;
   completedAt: string | null;
+  createdAt: string | null;
+  modifiedAt: string | null;
   priority: number | null;
 }
 
@@ -116,9 +118,10 @@ function formatEvent(event: BridgeEvent): string {
 function formatReminder(reminder: BridgeReminder): string {
   const due = reminder.dueAt ? `due ${reminder.dueAt}` : "no due date";
   const done = reminder.completed ? " — completed" : "";
+  const updated = reminder.modifiedAt ? ` — modified ${reminder.modifiedAt}` : "";
   const list = redactPhoneNumbers(reminder.list);
   const title = redactPhoneNumbers(reminder.title);
-  return `[${list}] ${title} — ${due}${done}`;
+  return `[${list}] ${title} — ${due}${done}${updated}`;
 }
 
 function formatNoteSummary(note: BridgeNoteSummary): string {
@@ -225,6 +228,7 @@ async function listReminders(filters: {
   list?: string;
   include_completed?: boolean;
   due_within_days?: number;
+  limit?: number;
 }): Promise<BridgeReminder[]> {
   if (process.platform === "darwin") {
     try {
@@ -232,6 +236,7 @@ async function listReminders(filters: {
         list: filters.list,
         includeCompleted: filters.include_completed,
         dueWithinDays: filters.due_within_days,
+        limit: filters.limit,
       });
     } catch (err) {
       if (!(await bridgeAvailable())) throw err;
@@ -243,6 +248,7 @@ async function listReminders(filters: {
       list: filters.list,
       includeCompleted: filters.include_completed,
       dueWithinDays: filters.due_within_days,
+      limit: filters.limit,
     },
   );
   return reminders;
@@ -342,8 +348,12 @@ export function createAppleTools(namespace = NAMESPACE): RuntimeTool[] {
           .number()
           .optional()
           .describe("Only reminders due within the next N days."),
+        limit: z
+          .number()
+          .optional()
+          .describe("Max reminders to return (default 1, max 20). Larger reads can be slow on macOS."),
       },
-      async ({ list, include_completed, due_within_days }) =>
+      async ({ list, include_completed, due_within_days, limit }) =>
         wrap(async () => {
           if (!(await remindersEnabled())) {
             return "Apple Reminders reads are disabled in Boop Connections. Turn on Apple Reminders under Local Mac to use this tool.";
@@ -352,6 +362,7 @@ export function createAppleTools(namespace = NAMESPACE): RuntimeTool[] {
             list,
             include_completed,
             due_within_days,
+            limit,
           });
           if (reminders.length === 0) return "No reminders found.";
           return reminders.map(formatReminder).join("\n");

@@ -205,7 +205,9 @@ end joinJson
 
 on noteFolderName(aNote)
   try
-    return name of container of aNote as text
+    tell application "Notes"
+      return name of container of aNote as text
+    end tell
   on error
     return "Notes"
   end try
@@ -213,7 +215,9 @@ end noteFolderName
 
 on noteModifiedAt(aNote)
   try
-    return modification date of aNote as text
+    tell application "Notes"
+      return modification date of aNote as text
+    end tell
   on error
     return ""
   end try

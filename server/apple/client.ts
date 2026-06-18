@@ -6,8 +6,8 @@ import {
   LOCAL_MESSAGES_UNSUPPORTED_MESSAGE,
   probeLocalMessagesAccess,
 } from "./messages-local.js";
-import { getCachedLocalNotesAccess } from "./notes-local.js";
-import { getCachedLocalRemindersAccess } from "./reminders-local.js";
+import { getCachedLocalNotesAccess, requestLocalNotesAccess } from "./notes-local.js";
+import { getCachedLocalRemindersAccess, requestLocalRemindersAccess } from "./reminders-local.js";
 
 const REQUEST_TIMEOUT_MS = 10_000;
 
@@ -118,7 +118,32 @@ interface AppleBridgeHealth {
   permissions?: AppleBridgePermissions;
 }
 
-async function localServerStatus(): Promise<AppleBridgeStatus> {
+interface AppleBridgeStatusOptions {
+  probeNotes?: boolean;
+  probeReminders?: boolean;
+}
+
+async function localNotesPermission(probe: boolean): Promise<string> {
+  const cached = getCachedLocalNotesAccess();
+  if (!probe || cached === "granted") return cached;
+  try {
+    return await requestLocalNotesAccess();
+  } catch {
+    return getCachedLocalNotesAccess();
+  }
+}
+
+async function localRemindersPermission(probe: boolean): Promise<string> {
+  const cached = getCachedLocalRemindersAccess();
+  if (!probe || cached === "granted") return cached;
+  try {
+    return await requestLocalRemindersAccess();
+  } catch {
+    return getCachedLocalRemindersAccess();
+  }
+}
+
+async function localServerStatus(options: AppleBridgeStatusOptions = {}): Promise<AppleBridgeStatus> {
   if (process.platform !== "darwin") {
     return {
       running: false,
@@ -129,9 +154,11 @@ async function localServerStatus(): Promise<AppleBridgeStatus> {
       error: LOCAL_MESSAGES_UNSUPPORTED_MESSAGE,
     };
   }
-  const messages = await probeLocalMessagesAccess();
-  const notes = getCachedLocalNotesAccess();
-  const reminders = getCachedLocalRemindersAccess();
+  const [messages, notes, reminders] = await Promise.all([
+    probeLocalMessagesAccess(),
+    localNotesPermission(Boolean(options.probeNotes)),
+    localRemindersPermission(Boolean(options.probeReminders)),
+  ]);
   return {
     running: true,
     source: "local-server",
@@ -147,10 +174,12 @@ async function localServerStatus(): Promise<AppleBridgeStatus> {
   };
 }
 
-export async function getAppleBridgeStatus(): Promise<AppleBridgeStatus> {
+export async function getAppleBridgeStatus(
+  options: AppleBridgeStatusOptions = {},
+): Promise<AppleBridgeStatus> {
   const info = await readBridgeInfo();
   if (!info) {
-    return localServerStatus();
+    return localServerStatus(options);
   }
   try {
     const health = await appleBridgeRequest<AppleBridgeHealth>("/health");
@@ -163,7 +192,7 @@ export async function getAppleBridgeStatus(): Promise<AppleBridgeStatus> {
       error: null,
     };
   } catch (err) {
-    const local = await localServerStatus();
+    const local = await localServerStatus(options);
     if (local.permissions?.messages === "granted") return local;
     return {
       running: false,
