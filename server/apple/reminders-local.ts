@@ -5,6 +5,8 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const OSASCRIPT_BIN = "/usr/bin/osascript";
 const REMINDERS_TIMEOUT_MS = 45_000;
+const REMINDERS_ACCESS_TIMEOUT_MS = 5_000;
+const REMINDERS_ACCESS_RETRY_MS = 30_000;
 const REMINDERS_MAX_BUFFER = 5 * 1024 * 1024;
 
 export const LOCAL_REMINDERS_UNSUPPORTED_MESSAGE =
@@ -16,6 +18,7 @@ export const LOCAL_REMINDERS_ACCESS_MESSAGE =
 export type LocalRemindersPermission = "granted" | "denied" | "notDetermined";
 
 let cachedRemindersPermission: LocalRemindersPermission = "notDetermined";
+let lastRemindersAccessProbeFailedAt = 0;
 
 interface RawReminder {
   id: string;
@@ -98,7 +101,11 @@ function isPermissionError(err: unknown): boolean {
   return message.includes(LOCAL_REMINDERS_ACCESS_MESSAGE);
 }
 
-async function runRemindersScript<T>(script: string, env: Record<string, string>): Promise<T> {
+async function runRemindersScript<T>(
+  script: string,
+  env: Record<string, string>,
+  options: { timeoutMs?: number } = {},
+): Promise<T> {
   if (!isMac()) throw new Error(LOCAL_REMINDERS_UNSUPPORTED_MESSAGE);
   if (!existsSync(OSASCRIPT_BIN)) {
     throw new Error("osascript is required to read Apple Reminders, but /usr/bin/osascript was not found.");
@@ -110,7 +117,7 @@ async function runRemindersScript<T>(script: string, env: Record<string, string>
       OSASCRIPT_BIN,
       ["-e", script],
       {
-        timeout: REMINDERS_TIMEOUT_MS,
+        timeout: options.timeoutMs ?? REMINDERS_TIMEOUT_MS,
         maxBuffer: REMINDERS_MAX_BUFFER,
         env: { ...process.env, ...env },
       },
@@ -166,15 +173,27 @@ export async function requestLocalRemindersAccess(): Promise<LocalRemindersPermi
     cachedRemindersPermission = "denied";
     return cachedRemindersPermission;
   }
+  if (
+    cachedRemindersPermission === "notDetermined" &&
+    lastRemindersAccessProbeFailedAt > 0 &&
+    Date.now() - lastRemindersAccessProbeFailedAt < REMINDERS_ACCESS_RETRY_MS
+  ) {
+    return cachedRemindersPermission;
+  }
   try {
-    await runRemindersScript<{ ok: boolean }>(REQUEST_REMINDERS_ACCESS_SCRIPT, {});
+    await runRemindersScript<{ ok: boolean }>(REQUEST_REMINDERS_ACCESS_SCRIPT, {}, {
+      timeoutMs: REMINDERS_ACCESS_TIMEOUT_MS,
+    });
     cachedRemindersPermission = "granted";
+    lastRemindersAccessProbeFailedAt = 0;
   } catch (err) {
-    cachedRemindersPermission = isPermissionError(err)
-      ? "denied"
-      : cachedRemindersPermission === "granted"
-        ? "granted"
-        : "notDetermined";
+    if (isPermissionError(err)) {
+      cachedRemindersPermission = "denied";
+      lastRemindersAccessProbeFailedAt = 0;
+    } else {
+      cachedRemindersPermission = cachedRemindersPermission === "granted" ? "granted" : "notDetermined";
+      lastRemindersAccessProbeFailedAt = Date.now();
+    }
   }
   return cachedRemindersPermission;
 }
@@ -232,7 +251,7 @@ end joinJson
 
 const REQUEST_REMINDERS_ACCESS_SCRIPT = String.raw`
 tell application "Reminders"
-  set listCount to count of lists
+  set appName to name
 end tell
 return "{\"ok\":true}"
 `;

@@ -237,9 +237,9 @@ export async function readLocalMessages(filters: LocalMessageFilters = {}): Prom
 
 async function participantWhereClause(participant: string): Promise<string> {
   const pattern = sqlLiteral(`%${escapeLike(participant)}%`);
-  const resolvedHandles = await resolveLocalContactHandles(participant)
-    .then((resolution) => resolution.handles)
-    .catch(() => []);
+  const resolvedHandles = shouldResolveLocalContactHandles(participant)
+    ? (await resolveLocalContactHandles(participant)).handles
+    : [];
   const handles = uniqueStrings(resolvedHandles.map((handle) => handle.trim()).filter(Boolean)).slice(0, 50);
   const phoneTerms = uniqueStrings(
     handles
@@ -262,6 +262,10 @@ async function participantWhereClause(participant: string): Promise<string> {
           AND ${chatParticipantCondition}
       )
     )`;
+}
+
+function shouldResolveLocalContactHandles(participant: string): boolean {
+  return !participant.includes("@") && normalizePhoneDigits(participant).length < 7;
 }
 
 function participantHandleCondition(

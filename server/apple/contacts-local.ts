@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { accessSync, existsSync, readdirSync, type Dirent } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -9,6 +9,9 @@ const SQLITE_BIN = "/usr/bin/sqlite3";
 const SQLITE_TIMEOUT_MS = 10_000;
 const SQLITE_MAX_BUFFER = 5 * 1024 * 1024;
 const CONTACT_MATCH_LIMIT = 50;
+
+export const LOCAL_CONTACTS_FULL_DISK_ACCESS_MESSAGE =
+  "Boop needs Full Disk Access for the terminal app running the server to read Contacts for iMessage contact matching. Open System Settings -> Privacy & Security -> Full Disk Access, add your terminal or Codex app, then restart npm run dev.";
 
 interface ContactCandidateRow {
   id: number;
@@ -56,33 +59,88 @@ function escapeLike(input: string): string {
 }
 
 async function runSql<T>(dbPath: string, sql: string): Promise<T[]> {
-  const { stdout } = await execFileAsync(
-    SQLITE_BIN,
-    ["-readonly", "-json", dbPath, sql],
-    { timeout: SQLITE_TIMEOUT_MS, maxBuffer: SQLITE_MAX_BUFFER },
-  );
-  const trimmed = stdout.trim();
-  if (!trimmed) return [];
-  const parsed = JSON.parse(trimmed) as unknown;
-  return Array.isArray(parsed) ? (parsed as T[]) : [];
+  try {
+    const { stdout } = await execFileAsync(
+      SQLITE_BIN,
+      ["-readonly", "-json", dbPath, sql],
+      { timeout: SQLITE_TIMEOUT_MS, maxBuffer: SQLITE_MAX_BUFFER },
+    );
+    const trimmed = stdout.trim();
+    if (!trimmed) return [];
+    const parsed = JSON.parse(trimmed) as unknown;
+    return Array.isArray(parsed) ? (parsed as T[]) : [];
+  } catch (err) {
+    throw normalizeContactsError(err);
+  }
+}
+
+function normalizeContactsError(err: unknown): Error {
+  const signal = typeof (err as { signal?: unknown })?.signal === "string"
+    ? (err as { signal: string }).signal
+    : "";
+  const killed = Boolean((err as { killed?: unknown })?.killed);
+  const code = typeof (err as { code?: unknown })?.code === "string"
+    ? (err as { code: string }).code
+    : "";
+  const stderr = typeof (err as { stderr?: unknown })?.stderr === "string"
+    ? (err as { stderr: string }).stderr.trim()
+    : "";
+  const text = stderr || (err instanceof Error ? err.message : String(err));
+  const lowerText = text.toLowerCase();
+  if (
+    code === "EACCES" ||
+    code === "EPERM" ||
+    lowerText.includes("unable to open database file") ||
+    lowerText.includes("authorization denied") ||
+    lowerText.includes("operation not permitted") ||
+    lowerText.includes("not authorized") ||
+    lowerText.includes("permission denied")
+  ) {
+    return new Error(LOCAL_CONTACTS_FULL_DISK_ACCESS_MESSAGE);
+  }
+  if (killed || signal === "SIGTERM" || text.includes("timed out") || text.includes("SIGTERM")) {
+    return new Error("Local Contacts read timed out while resolving iMessage contact handles.");
+  }
+  if (err instanceof SyntaxError || text.includes("Unexpected token")) {
+    return new Error("Local Contacts returned unreadable data while resolving iMessage contact handles.");
+  }
+  return new Error("Local Contacts SQLite read failed while resolving iMessage contact handles.");
 }
 
 function findAddressBookDbs(): string[] {
   if (!isMac()) return [];
   const sourcesPath = addressBookSourcesPath();
-  if (!existsSync(sourcesPath)) return [];
+  if (!pathExists(sourcesPath)) return [];
 
   const dbs: string[] = [];
-  for (const entry of readdirSync(sourcesPath, { withFileTypes: true })) {
+  for (const entry of readDirectory(sourcesPath)) {
     if (!entry.isDirectory()) continue;
     const sourcePath = join(sourcesPath, entry.name);
-    for (const sourceEntry of readdirSync(sourcePath, { withFileTypes: true })) {
+    for (const sourceEntry of readDirectory(sourcePath)) {
       if (sourceEntry.isFile() && /^AddressBook-v\d+\.abcddb$/.test(sourceEntry.name)) {
         dbs.push(join(sourcePath, sourceEntry.name));
       }
     }
   }
   return dbs;
+}
+
+function pathExists(path: string): boolean {
+  try {
+    accessSync(path);
+    return true;
+  } catch (err) {
+    if ((err as { code?: unknown })?.code === "ENOENT") return false;
+    throw normalizeContactsError(err);
+  }
+}
+
+function readDirectory(path: string): Dirent[] {
+  try {
+    return readdirSync(path, { withFileTypes: true });
+  } catch (err) {
+    throw normalizeContactsError(err);
+  }
 }
 
 function normalizeName(input: string): string {
