@@ -17,6 +17,7 @@ import { ensureProactiveWatcher } from "./proactive-email.js";
 import { preloadLocalModel } from "./embeddings.js";
 import { createMemoryRouter } from "./memory-routes.js";
 import { createBrowserRouter } from "./browser-routes.js";
+import { createAppleRouter } from "./apple-routes.js";
 import { closeLocalBrowser } from "./browser/launcher.js";
 import { createChangelogRouter } from "./changelog.js";
 import {
@@ -128,6 +129,7 @@ async function main() {
   app.use("/composio", createComposioRouter());
   app.use("/memory", createMemoryRouter());
   app.use("/browser", createBrowserRouter());
+  app.use("/apple", createAppleRouter());
   app.use("/changelog", createChangelogRouter());
 
   app.post("/agents/:id/cancel", (req, res) => {

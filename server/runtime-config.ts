@@ -16,8 +16,10 @@ const BROWSER_START_URL_KEY = "browser_start_url";
 const BROWSER_CHANNEL_KEY = "browser_channel";
 const BROWSER_EXECUTABLE_PATH_KEY = "browser_executable_path";
 const BROWSER_EXTRA_ARGS_KEY = "browser_extra_args";
+export const APPLE_ENABLED_KEY = "apple_enabled";
 const CONFIG_TTL_MS = 30 * 1000;
 const BROWSER_CONFIG_TTL_MS = 5 * 1000;
+const APPLE_CONFIG_TTL_MS = 5 * 1000;
 
 export interface RuntimeConfig {
   runtime: RuntimeName;
@@ -28,6 +30,7 @@ export interface RuntimeConfig {
 
 let cachedConfig: { at: number; value: RuntimeConfig } | null = null;
 let cachedBrowserSettings: { at: number; value: BrowserSettings } | null = null;
+let cachedAppleSettings: { at: number; value: AppleSettings } | null = null;
 
 export interface BrowserSettings {
   enabled: boolean;
@@ -38,6 +41,10 @@ export interface BrowserSettings {
   channel: string;
   executablePath: string;
   extraArgs: string[];
+}
+
+export interface AppleSettings {
+  enabled: boolean;
 }
 
 const DEFAULT_BROWSER_PROFILE_DIR = join(homedir(), ".boop", "browser-profile");
@@ -307,4 +314,22 @@ export async function getBrowserSettings(): Promise<BrowserSettings> {
 
 export function clearBrowserSettingsCache(): void {
   cachedBrowserSettings = null;
+}
+
+export async function getAppleSettings(): Promise<AppleSettings> {
+  if (cachedAppleSettings && Date.now() - cachedAppleSettings.at < APPLE_CONFIG_TTL_MS) {
+    return cachedAppleSettings.value;
+  }
+
+  const enabled = await getSetting(APPLE_ENABLED_KEY);
+  const value: AppleSettings = {
+    enabled: settingBool(enabled, process.env.BOOP_APPLE_ENABLED, false),
+  };
+
+  cachedAppleSettings = { at: Date.now(), value };
+  return value;
+}
+
+export function clearAppleSettingsCache(): void {
+  cachedAppleSettings = null;
 }

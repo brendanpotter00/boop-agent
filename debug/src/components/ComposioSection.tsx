@@ -30,6 +30,22 @@ interface ToolkitsResponse {
   toolkits: Toolkit[];
 }
 
+type ApplePermissionState = "granted" | "denied" | "notDetermined";
+
+interface AppleBridgeStatus {
+  running: boolean;
+  source: "desktop-bridge" | "local-server" | "unavailable";
+  port: number | null;
+  version: string | null;
+  permissions: { messages?: ApplePermissionState } | null;
+  error: string | null;
+}
+
+interface AppleStatus {
+  enabled: boolean;
+  bridge: AppleBridgeStatus;
+}
+
 interface ToolSummary {
   slug: string;
   name: string;
@@ -204,6 +220,8 @@ function IntroCard({ isDark, onDismiss }: { isDark: boolean; onDismiss: () => vo
 export function ComposioSection({ isDark }: { isDark: boolean }) {
   const [data, setData] = useState<ToolkitsResponse | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [appleStatus, setAppleStatus] = useState<AppleStatus | null>(null);
+  const [appleLoaded, setAppleLoaded] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [needsAuthConfig, setNeedsAuthConfig] = useState<NeedsAuthConfigInfo | null>(null);
   const [showIntro, setShowIntro] = useState(() => {
@@ -267,9 +285,74 @@ export function ComposioSection({ isDark }: { isDark: boolean }) {
     }
   }, []);
 
+  const fetchAppleStatus = useCallback(async () => {
+    try {
+      const r = await fetch("/api/apple/status");
+      if (!r.ok) throw new Error(r.statusText);
+      setAppleStatus((await r.json()) as AppleStatus);
+    } catch (err) {
+      setAppleStatus({
+        enabled: false,
+        bridge: {
+          running: false,
+          source: "unavailable",
+          port: null,
+          version: null,
+          permissions: null,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      });
+    } finally {
+      setAppleLoaded(true);
+    }
+  }, []);
+
   useEffect(() => {
     fetchToolkits();
   }, [fetchToolkits]);
+
+  useEffect(() => {
+    fetchAppleStatus();
+  }, [fetchAppleStatus]);
+
+  const toggleApple = useCallback(
+    async (enabled: boolean) => {
+      setBusy("apple:imessage");
+      try {
+        const r = await fetch(`/api/apple/${enabled ? "enable" : "disable"}`, {
+          method: "POST",
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          showToast(`iMessage connection failed: ${err?.error ?? r.statusText}`);
+          return;
+        }
+        setAppleStatus((await r.json()) as AppleStatus);
+      } catch (err) {
+        showToast(`iMessage connection failed: ${String(err)}`);
+      } finally {
+        setBusy(null);
+      }
+    },
+    [showToast],
+  );
+
+  const openFullDiskAccess = useCallback(async () => {
+    setBusy("apple:imessage");
+    try {
+      const r = await fetch("/api/apple/open-full-disk-access", { method: "POST" });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        showToast(`Could not open Full Disk Access settings: ${err?.error ?? r.statusText}`);
+        return;
+      }
+      showToast("Opened Full Disk Access settings. Add Codex, Terminal, or the app running Boop, then restart npm run dev.", "info");
+    } catch (err) {
+      showToast(`Could not open Full Disk Access settings: ${String(err)}`);
+    } finally {
+      setBusy(null);
+    }
+  }, [showToast]);
 
   const connect = useCallback(
     async (slug: string) => {
@@ -405,17 +488,45 @@ export function ComposioSection({ isDark }: { isDark: boolean }) {
 
   const activeCount =
     data?.toolkits.reduce((n, t) => n + t.connections.filter((c) => c.status === "ACTIVE").length, 0) ?? 0;
+  const imessageConnected =
+    Boolean(appleStatus?.enabled) &&
+    Boolean(appleStatus?.bridge.running) &&
+    appleStatus?.bridge.permissions?.messages === "granted";
+  const showIMessageConnector =
+    appleLoaded &&
+    (appleStatus?.bridge.source === "local-server" ||
+      appleStatus?.bridge.source === "desktop-bridge");
 
   return (
     <section className="mx-auto max-w-[1040px] space-y-5 pb-10">
       <SectionHeader
         title="Connections"
-        count={activeCount}
+        count={activeCount + (imessageConnected ? 1 : 0)}
         isDark={isDark}
         hint={data?.enabled === false ? "Set COMPOSIO_API_KEY in .env.local" : undefined}
       />
 
       {showIntro && data?.enabled !== false && <IntroCard isDark={isDark} onDismiss={dismissIntro} />}
+
+      {showIMessageConnector && (
+        <SubsectionGrid
+          label="Local Mac"
+          hint="Read-only, private to this computer"
+          isDark={isDark}
+        >
+          <IMessageConnectionCard
+            status={appleStatus}
+            loaded={appleLoaded}
+            busy={busy === "apple:imessage"}
+            cardBg={cardBg}
+            muted={muted}
+            isDark={isDark}
+            onToggle={toggleApple}
+            onRefresh={fetchAppleStatus}
+            onOpenFullDiskAccess={openFullDiskAccess}
+          />
+        </SubsectionGrid>
+      )}
 
       {needsAuthConfig && (
         <div
@@ -537,6 +648,177 @@ export function ComposioSection({ isDark }: { isDark: boolean }) {
       {toast && <Toast toast={toast} onDismiss={dismissToast} isDark={isDark} />}
     </section>
   );
+}
+
+function IMessageConnectionCard({
+  status,
+  loaded,
+  busy,
+  cardBg,
+  muted,
+  isDark,
+  onToggle,
+  onRefresh,
+  onOpenFullDiskAccess,
+}: {
+  status: AppleStatus | null;
+  loaded: boolean;
+  busy: boolean;
+  cardBg: string;
+  muted: string;
+  isDark: boolean;
+  onToggle: (enabled: boolean) => void;
+  onRefresh: () => void;
+  onOpenFullDiskAccess: () => void;
+}) {
+  const enabled = status?.enabled ?? false;
+  const bridge = status?.bridge ?? null;
+  const permission = bridge?.permissions?.messages;
+  const state = imessageConnectionState(status, loaded);
+  const buttonLabel = busy ? "Working..." : enabled ? "Disconnect" : "Connect";
+
+  return (
+    <div className={`rounded-2xl border px-4 py-3.5 shadow-sm fade-in ${cardBg}`}>
+      <div className="flex items-center gap-4">
+        <IntegrationLogo raw="imessage" size={32} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={`text-sm font-medium ${isDark ? "text-zinc-100" : "text-zinc-900"}`}>
+              iMessage
+            </span>
+            <span className={`text-xs mono ${muted}`}>apple.messages.read</span>
+            <span
+              className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                isDark ? "bg-zinc-100/10 text-zinc-300" : "bg-zinc-100 text-zinc-700"
+              }`}
+            >
+              Mac only
+            </span>
+            <span
+              className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                isDark ? "bg-emerald-400/10 text-emerald-300" : "bg-emerald-50 text-emerald-700"
+              }`}
+            >
+              Read-only
+            </span>
+          </div>
+          <p className={`text-xs ${muted} leading-snug mt-0.5 line-clamp-2`}>
+            Reads local Messages history from this Mac. The terminal app running the server needs Full Disk Access.
+          </p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            <span className={`inline-flex items-center gap-1.5 text-xs ${state.textClass}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${state.dotClass}`} />
+              {state.label}
+            </span>
+            {bridge?.version && (
+              <span className={`text-[10px] mono ${muted}`}>
+                {bridge.source === "local-server" ? `server ${bridge.version}` : `bridge v${bridge.version}`}
+              </span>
+            )}
+            {permission && permission !== "granted" && (
+              <span className={`text-[10px] mono ${muted}`}>messages={permission}</span>
+            )}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            onClick={onRefresh}
+            disabled={busy}
+            className={`rounded-xl border px-2.5 py-1.5 text-xs transition-colors ${
+              isDark
+                ? "border-white/10 text-zinc-300 hover:bg-white/5"
+                : "border-zinc-200 text-zinc-600 hover:bg-zinc-100"
+            } disabled:opacity-50`}
+          >
+            Refresh
+          </button>
+          <button
+            onClick={() => onToggle(!enabled)}
+            disabled={busy || !loaded}
+            className={`rounded-xl px-3 py-1.5 text-xs font-medium transition-colors ${
+              busy || !loaded
+                ? isDark
+                  ? "bg-zinc-700 text-zinc-400"
+                  : "bg-zinc-200 text-zinc-500"
+                : enabled
+                  ? isDark
+                    ? "border border-white/10 text-zinc-300 hover:bg-white/5"
+                    : "border border-zinc-200 text-zinc-600 hover:bg-zinc-100"
+                  : isDark
+                    ? "bg-zinc-100 text-zinc-950 hover:bg-white"
+                    : "bg-zinc-950 text-white hover:bg-zinc-800"
+            }`}
+          >
+            {buttonLabel}
+          </button>
+        </div>
+      </div>
+
+      {enabled && !bridge?.running && (
+        <div
+          className={`mt-3 rounded-xl border px-3 py-2 text-xs leading-relaxed ${
+            isDark
+              ? "border-amber-500/20 bg-amber-500/5 text-amber-200"
+              : "border-amber-200 bg-amber-50 text-amber-800"
+          }`}
+        >
+          iMessage reads only work on macOS. Run Boop on the Mac whose Messages you want to read.
+          {bridge?.error && <span className="block mt-1 mono text-[11px] opacity-80">{bridge.error}</span>}
+        </div>
+      )}
+
+      {enabled && bridge?.running && permission === "denied" && (
+        <div
+          className={`mt-3 rounded-xl border px-3 py-2 text-xs leading-relaxed ${
+            isDark
+              ? "border-rose-500/20 bg-rose-500/5 text-rose-200"
+              : "border-rose-200 bg-rose-50 text-rose-700"
+          }`}
+        >
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <span>
+              Grant Full Disk Access to the terminal or Codex app running the Boop server, then restart npm run dev.
+            </span>
+            <button
+              type="button"
+              onClick={onOpenFullDiskAccess}
+              disabled={busy}
+              className={`shrink-0 rounded-xl px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                isDark
+                  ? "bg-rose-400/15 text-rose-100 hover:bg-rose-400/20 disabled:opacity-50"
+                  : "bg-rose-100 text-rose-800 hover:bg-rose-200 disabled:opacity-50"
+              }`}
+            >
+              Open Full Disk Access
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function imessageConnectionState(status: AppleStatus | null, loaded: boolean): {
+  label: string;
+  dotClass: string;
+  textClass: string;
+} {
+  if (!loaded) {
+    return { label: "Checking", dotClass: "bg-zinc-400", textClass: "text-zinc-500" };
+  }
+  if (!status?.enabled) {
+    return { label: "Not connected", dotClass: "bg-zinc-500", textClass: "text-zinc-500" };
+  }
+  if (!status.bridge.running) {
+    return { label: "Local Mac unavailable", dotClass: "bg-amber-400", textClass: "text-amber-500" };
+  }
+  if (status.bridge.permissions?.messages === "granted") {
+    return { label: "Connected", dotClass: "bg-emerald-400", textClass: "text-emerald-500" };
+  }
+  if (status.bridge.permissions?.messages === "denied") {
+    return { label: "Needs Full Disk Access", dotClass: "bg-rose-400", textClass: "text-rose-500" };
+  }
+  return { label: "Permission pending", dotClass: "bg-amber-400", textClass: "text-amber-500" };
 }
 
 function ToolkitCard({

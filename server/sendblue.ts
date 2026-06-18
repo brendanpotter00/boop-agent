@@ -4,6 +4,7 @@ import { convex } from "./convex-client.js";
 import { handleUserMessage } from "./interaction-agent.js";
 import { broadcast } from "./broadcast.js";
 import { validateImageHeader, MAX_IMAGE_BYTES, type ImageMediaType } from "./images/mime.js";
+import { redactContactHandle, redactPhoneNumbers } from "./privacy.js";
 
 const API_BASE = "https://api.sendblue.com/api";
 const MAX_CHUNK = 2900;
@@ -70,7 +71,7 @@ export async function sendImessage(toNumber: string, text: string): Promise<void
     );
     return;
   }
-  const plain = stripMarkdown(text);
+  const plain = redactPhoneNumbers(stripMarkdown(text));
   for (const part of chunk(plain)) {
     const res = await fetch(`${API_BASE}/send-message`, {
       method: "POST",
@@ -90,11 +91,11 @@ export async function sendImessage(toNumber: string, text: string): Promise<void
         );
       } else if (body.includes("This phone number is not defined")) {
         console.error(
-          `[sendblue] → Sendblue doesn't recognize from_number=${from}. Run \`npm run sendblue:sync\` to pull the correct one from \`sendblue lines\`, then restart the server.`,
+          `[sendblue] → Sendblue doesn't recognize from_number=${redactContactHandle(from)}. Run \`npm run sendblue:sync\` to pull the correct one from \`sendblue lines\`, then restart the server.`,
         );
       }
     } else {
-      console.log(`[sendblue] → sent ${part.length} chars to ${toNumber}`);
+      console.log(`[sendblue] → sent ${part.length} chars to ${redactContactHandle(toNumber)}`);
     }
   }
 }
@@ -239,8 +240,9 @@ export function createSendblueRouter(): express.Router {
     const conversationId = `sms:${from_number}`;
     const turnTag = Math.random().toString(36).slice(2, 8);
     const textForLog = typeof content === "string" ? content : "";
-    const preview = textForLog.length > 100 ? textForLog.slice(0, 100) + "…" : textForLog;
-    console.log(`[turn ${turnTag}] ← ${from_number}: ${JSON.stringify(preview)}`);
+    const safeTextForLog = redactPhoneNumbers(textForLog);
+    const preview = safeTextForLog.length > 100 ? safeTextForLog.slice(0, 100) + "…" : safeTextForLog;
+    console.log(`[turn ${turnTag}] ← ${redactContactHandle(from_number)}: ${JSON.stringify(preview)}`);
     const start = Date.now();
 
     broadcast("message_in", { conversationId, content, from_number, handle: message_handle });
@@ -258,7 +260,8 @@ export function createSendblueRouter(): express.Router {
       });
       if (reply) {
         const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-        const replyPreview = reply.length > 100 ? reply.slice(0, 100) + "…" : reply;
+        const safeReplyPreview = redactPhoneNumbers(reply);
+        const replyPreview = safeReplyPreview.length > 100 ? safeReplyPreview.slice(0, 100) + "…" : safeReplyPreview;
         console.log(
           `[turn ${turnTag}] → reply (${elapsed}s, ${reply.length} chars): ${JSON.stringify(replyPreview)}`,
         );

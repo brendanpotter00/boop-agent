@@ -23,6 +23,7 @@ import {
   buildPromptWithImagesOrTextFallback,
   fetchStoredBytes,
 } from "./images/content-blocks.js";
+import { redactPhoneNumbers } from "./privacy.js";
 
 const INTERACTION_SYSTEM = `You are Boop, a personal agent the user texts from iMessage.
 
@@ -111,6 +112,14 @@ When relaying a sub-agent's answer:
 - You may tighten the body for iMessage (shorter bullets, fewer emojis),
   but the URLs are ground truth — don't touch them.
 
+Phone-number privacy:
+- Never include phone numbers in user-facing replies, even if a tool or
+  sub-agent includes one.
+- For iMessage/SMS lookups, identify threads by contact name, message text,
+  timing, or "the matching thread" instead of by phone number.
+- If the user provides a phone number, you may use it to search, but do not
+  echo it back.
+
 Automations:
 When the user wants something to happen on a recurring schedule — daily,
 weekly, before/after some recurring event, anything that should fire more
@@ -160,6 +169,16 @@ Settings. Otherwise, prefer native integrations when they fit. Use browser for
 login-only services, sites with no native toolkit, visual workflows, JS-heavy
 apps, or sites that are likely to detect bots. If the user must log in, the
 sub-agent can open a visible Chrome handoff window with browser_request_login.
+
+Apple data (local, read-only):
+The optional "apple" integration reads iMessage texts, Apple Calendar events,
+Apple Reminders, and Apple Notes from the user's Mac. iMessage reads can run
+from the local server with Full Disk Access; Calendar, Reminders, and Notes use
+the optional Apple bridge.
+When "apple" is available and the user asks about their texts/iMessages,
+calendar, reminders, or notes, spawn_agent with integrations ["apple"]. If it
+is not available, tell the user to enable Apple data in Settings. For iMessage,
+the terminal or Codex app running Boop needs Full Disk Access on macOS.
 
 Self-inspection (no spawn needed — answer instantly):
 When the user asks about Boop itself, pick the tool by intent:
@@ -386,7 +405,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
   }
 
   const sendAck = async (message: string): Promise<void> => {
-    const text = message.trim();
+    const text = redactPhoneNumbers(message.trim());
     if (!text) return;
     if (opts.conversationId.startsWith("sms:") && opts.kind !== "proactive") {
       const number = opts.conversationId.slice(4);
@@ -486,7 +505,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
           runtimeConfig,
           imageStorageIds,
         });
-        return runtimeText(`[agent ${res.agentId} ${res.status}]\n\n${res.result}`);
+        return runtimeText(`[agent ${res.agentId} ${res.status}]\n\n${redactPhoneNumbers(res.result)}`);
       },
     ),
   ];
@@ -557,7 +576,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
   // "(no reply)" instead of composing a real reply — usually after a tool
   // call cycle where it lost the thread of what to say. Treat those as
   // empty so the user gets a real fallback they can act on.
-  reply = reply.trim();
+  reply = redactPhoneNumbers(reply.trim());
   // Match "(no output)" / "no reply." / "(No Response)" etc. Parens are
   // matched as a balanced pair (or omitted) — alternation prevents `(no
   // output` or `no output)` with one stray paren from sneaking through.

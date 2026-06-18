@@ -45,6 +45,8 @@ export async function loadIntegrations(): Promise<void> {
   await registerComposioToolkits();
   const { registerBrowserIntegration } = await import("./browser-loader.js");
   registerBrowserIntegration();
+  const { registerAppleIntegration } = await import("./apple-loader.js");
+  registerAppleIntegration();
   const loaded = [...registry.keys()];
   const enabled = (await listEnabledIntegrations()).map((i) => i.name);
   console.log(

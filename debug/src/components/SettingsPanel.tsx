@@ -6,6 +6,7 @@ import {
   RuntimeProviderLogo,
   type RuntimeProvider,
 } from "../lib/branding.js";
+import { AppleSection } from "./AppleSection.js";
 import { BrowserSection } from "./BrowserSection.js";
 
 type RuntimeChoice = "claude" | "codex";
@@ -187,6 +188,7 @@ export function SettingsPanel({ isDark }: { isDark: boolean }) {
           ),
         )}
         <BrowserSection isDark={isDark} />
+        <AppleSection isDark={isDark} />
         <DemoModeRow isDark={isDark} />
       </div>
     </div>
