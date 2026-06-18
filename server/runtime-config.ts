@@ -17,6 +17,8 @@ const BROWSER_CHANNEL_KEY = "browser_channel";
 const BROWSER_EXECUTABLE_PATH_KEY = "browser_executable_path";
 const BROWSER_EXTRA_ARGS_KEY = "browser_extra_args";
 export const APPLE_ENABLED_KEY = "apple_enabled";
+export const APPLE_MESSAGES_ENABLED_KEY = "apple_messages_enabled";
+export const APPLE_NOTES_ENABLED_KEY = "apple_notes_enabled";
 const CONFIG_TTL_MS = 30 * 1000;
 const BROWSER_CONFIG_TTL_MS = 5 * 1000;
 const APPLE_CONFIG_TTL_MS = 5 * 1000;
@@ -45,6 +47,8 @@ export interface BrowserSettings {
 
 export interface AppleSettings {
   enabled: boolean;
+  messagesEnabled: boolean;
+  notesEnabled: boolean;
 }
 
 const DEFAULT_BROWSER_PROFILE_DIR = join(homedir(), ".boop", "browser-profile");
@@ -321,9 +325,24 @@ export async function getAppleSettings(): Promise<AppleSettings> {
     return cachedAppleSettings.value;
   }
 
-  const enabled = await getSetting(APPLE_ENABLED_KEY);
+  const [enabled, messagesEnabled, notesEnabled] = await Promise.all([
+    getSetting(APPLE_ENABLED_KEY),
+    getSetting(APPLE_MESSAGES_ENABLED_KEY),
+    getSetting(APPLE_NOTES_ENABLED_KEY),
+  ]);
+  const appleEnabled = settingBool(enabled, process.env.BOOP_APPLE_ENABLED, false);
   const value: AppleSettings = {
-    enabled: settingBool(enabled, process.env.BOOP_APPLE_ENABLED, false),
+    enabled: appleEnabled,
+    messagesEnabled:
+      appleEnabled &&
+      settingBool(
+        messagesEnabled,
+        process.env.BOOP_APPLE_MESSAGES_ENABLED,
+        appleEnabled,
+      ),
+    notesEnabled:
+      appleEnabled &&
+      settingBool(notesEnabled, process.env.BOOP_APPLE_NOTES_ENABLED, appleEnabled),
   };
 
   cachedAppleSettings = { at: Date.now(), value };

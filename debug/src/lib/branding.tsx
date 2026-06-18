@@ -73,6 +73,7 @@ const TOOL_BRANDS: ToolBrand[] = [
   { key: "supabase", displayName: "Supabase", domain: "supabase.com", aliases: ["supabase"] },
   { key: "granola", displayName: "Granola", domain: "granola.ai", aliases: ["granola", "granola_mcp"] },
   { key: "imessage", displayName: "iMessage", domain: "apple.com", aliases: ["imessage", "messages"] },
+  { key: "apple-notes", displayName: "Apple Notes", domain: "apple.com", aliases: ["apple-notes", "notes"] },
 ];
 
 function normalize(value: string): string {

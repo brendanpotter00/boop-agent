@@ -7,6 +7,8 @@ import { convex } from "./convex-client.js";
 import { isLocalBrowserControlRequest } from "./browser-routes.js";
 import {
   APPLE_ENABLED_KEY,
+  APPLE_MESSAGES_ENABLED_KEY,
+  APPLE_NOTES_ENABLED_KEY,
   clearAppleSettingsCache,
   getAppleSettings,
 } from "./runtime-config.js";
@@ -15,8 +17,12 @@ import { requestLocalNotesAccess } from "./apple/notes-local.js";
 
 interface AppleStatusResponse {
   enabled: boolean;
+  messagesEnabled: boolean;
+  notesEnabled: boolean;
   bridge: AppleBridgeStatus;
 }
+
+type AppleSource = "messages" | "notes";
 
 const execFileAsync = promisify(execFile);
 const FULL_DISK_ACCESS_URL =
@@ -40,7 +46,12 @@ async function appleStatus(): Promise<AppleStatusResponse> {
     getAppleSettings(),
     getAppleBridgeStatus(),
   ]);
-  return { enabled: settings.enabled, bridge };
+  return {
+    enabled: settings.enabled,
+    messagesEnabled: settings.messagesEnabled,
+    notesEnabled: settings.notesEnabled,
+    bridge,
+  };
 }
 
 async function setAppleEnabled(enabled: boolean): Promise<AppleStatusResponse> {
@@ -48,6 +59,27 @@ async function setAppleEnabled(enabled: boolean): Promise<AppleStatusResponse> {
     key: APPLE_ENABLED_KEY,
     value: enabled ? "true" : "false",
   });
+  clearAppleSettingsCache();
+  return appleStatus();
+}
+
+async function setAppleSourceEnabled(
+  source: AppleSource,
+  enabled: boolean,
+): Promise<AppleStatusResponse> {
+  const key = source === "messages" ? APPLE_MESSAGES_ENABLED_KEY : APPLE_NOTES_ENABLED_KEY;
+  await Promise.all([
+    enabled
+      ? convex.mutation(api.settings.set, {
+          key: APPLE_ENABLED_KEY,
+          value: "true",
+        })
+      : Promise.resolve(),
+    convex.mutation(api.settings.set, {
+      key,
+      value: enabled ? "true" : "false",
+    }),
+  ]);
   clearAppleSettingsCache();
   return appleStatus();
 }
@@ -89,6 +121,38 @@ export function createAppleRouter(): express.Router {
   router.post("/disable", async (_req, res) => {
     try {
       res.json(await setAppleEnabled(false));
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/messages/enable", async (_req, res) => {
+    try {
+      res.json(await setAppleSourceEnabled("messages", true));
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/messages/disable", async (_req, res) => {
+    try {
+      res.json(await setAppleSourceEnabled("messages", false));
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/notes/enable", async (_req, res) => {
+    try {
+      res.json(await setAppleSourceEnabled("notes", true));
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/notes/disable", async (_req, res) => {
+    try {
+      res.json(await setAppleSourceEnabled("notes", false));
     } catch (err) {
       res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
     }

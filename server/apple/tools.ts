@@ -3,6 +3,7 @@ import { createClaudeMcpServer } from "../runtimes/claude.js";
 import { defineRuntimeTool } from "../runtimes/tool.js";
 import { runtimeText, type RuntimeTool } from "../runtimes/types.js";
 import { redactContactHandle, redactPhoneNumbers } from "../privacy.js";
+import { getAppleSettings } from "../runtime-config.js";
 import { appleBridgeRequest, readBridgeInfo } from "./client.js";
 import { listLocalChats, readLocalMessages } from "./messages-local.js";
 import { readLocalNote, searchLocalNotes } from "./notes-local.js";
@@ -125,6 +126,14 @@ function formatNoteSummary(note: BridgeNoteSummary): string {
   return `${name} (${note.id}) — folder ${folder}${modified}\n  ${snippet}`;
 }
 
+async function messagesEnabled(): Promise<boolean> {
+  return (await getAppleSettings()).messagesEnabled;
+}
+
+async function notesEnabled(): Promise<boolean> {
+  return (await getAppleSettings()).notesEnabled;
+}
+
 async function bridgeAvailable(): Promise<boolean> {
   return Boolean(await readBridgeInfo());
 }
@@ -216,6 +225,9 @@ export function createAppleTools(namespace = NAMESPACE): RuntimeTool[] {
       },
       async ({ limit }) =>
         wrap(async () => {
+          if (!(await messagesEnabled())) {
+            return "iMessage reads are disabled in Boop Connections. Turn on iMessage under Local Mac to use this tool.";
+          }
           const chats = await listChats(limit);
           if (chats.length === 0) return "No chats found.";
           return chats.map(formatChat).join("\n");
@@ -240,6 +252,9 @@ export function createAppleTools(namespace = NAMESPACE): RuntimeTool[] {
       },
       async ({ chat_id, participant, query, since_hours, limit }) =>
         wrap(async () => {
+          if (!(await messagesEnabled())) {
+            return "iMessage reads are disabled in Boop Connections. Turn on iMessage under Local Mac to use this tool.";
+          }
           const messages = await listMessages({
             chat_id,
             participant,
@@ -318,6 +333,9 @@ export function createAppleTools(namespace = NAMESPACE): RuntimeTool[] {
       },
       async ({ query, limit }) =>
         wrap(async () => {
+          if (!(await notesEnabled())) {
+            return "Apple Notes reads are disabled in Boop Connections. Turn on Apple Notes under Local Mac to use this tool.";
+          }
           const notes = await listNotes({ query, limit });
           if (notes.length === 0) return "No notes found.";
           return notes.map(formatNoteSummary).join("\n");
@@ -332,6 +350,9 @@ export function createAppleTools(namespace = NAMESPACE): RuntimeTool[] {
       },
       async ({ note_id }) =>
         wrap(async () => {
+          if (!(await notesEnabled())) {
+            return "Apple Notes reads are disabled in Boop Connections. Turn on Apple Notes under Local Mac to use this tool.";
+          }
           const note = await getNote(note_id);
           return `${redactPhoneNumbers(note.name)} (folder ${redactPhoneNumbers(note.folder)})\n\n${redactPhoneNumbers(note.body)}`;
         }),

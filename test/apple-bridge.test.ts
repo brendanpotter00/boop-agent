@@ -8,9 +8,12 @@ import {
   readBridgeInfo,
 } from "../server/apple/client.js";
 import { createAppleTools } from "../server/apple/tools.js";
+import { clearAppleSettingsCache } from "../server/runtime-config.js";
 
 const tempHome = mkdtempSync(join(tmpdir(), "boop-apple-bridge-test-"));
 const originalHome = process.env.HOME;
+const originalAppleEnabled = process.env.BOOP_APPLE_ENABLED;
+const originalAppleMessagesEnabled = process.env.BOOP_APPLE_MESSAGES_ENABLED;
 
 const BRIDGE_INFO = {
   port: 4570,
@@ -38,15 +41,29 @@ function jsonResponse(status: number, body: unknown): Response {
 describe("apple bridge client and tools", () => {
   beforeEach(() => {
     process.env.HOME = tempHome;
+    process.env.BOOP_APPLE_ENABLED = "true";
+    process.env.BOOP_APPLE_MESSAGES_ENABLED = "true";
+    clearAppleSettingsCache();
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    clearAppleSettingsCache();
     rmSync(join(tempHome, ".boop"), { recursive: true, force: true });
     if (originalHome === undefined) {
       delete process.env.HOME;
     } else {
       process.env.HOME = originalHome;
+    }
+    if (originalAppleEnabled === undefined) {
+      delete process.env.BOOP_APPLE_ENABLED;
+    } else {
+      process.env.BOOP_APPLE_ENABLED = originalAppleEnabled;
+    }
+    if (originalAppleMessagesEnabled === undefined) {
+      delete process.env.BOOP_APPLE_MESSAGES_ENABLED;
+    } else {
+      process.env.BOOP_APPLE_MESSAGES_ENABLED = originalAppleMessagesEnabled;
     }
   });
 
@@ -76,8 +93,11 @@ describe("apple bridge client and tools", () => {
   it("formats iMessage history from the bridge response", async () => {
     writeBridgeInfo();
     const phoneSender = ["+", "1", "555", "555", "0100"].join("");
-    const fetchMock = vi.fn(async () =>
-      jsonResponse(200, {
+    const fetchMock = vi.fn(async (input: unknown) => {
+      if (String(input).includes("/api/query")) {
+        return jsonResponse(200, { status: "success", value: null });
+      }
+      return jsonResponse(200, {
         messages: [
           {
             id: 99,
@@ -100,8 +120,8 @@ describe("apple bridge client and tools", () => {
             hasAttachments: true,
           },
         ],
-      }),
-    );
+      });
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     const tool = createAppleTools().find((t) => t.name === "apple_read_messages");
@@ -116,7 +136,11 @@ describe("apple bridge client and tools", () => {
       ].join("\n"),
     );
 
-    const [url, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    const bridgeCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).startsWith("http://127.0.0.1:4570/messages/list"),
+    );
+    expect(bridgeCall).toBeDefined();
+    const [url, init] = bridgeCall as [URL, RequestInit];
     expect(String(url)).toBe("http://127.0.0.1:4570/messages/list?chatId=1&limit=50");
     expect(init.headers).toMatchObject({
       Authorization: `Bearer ${BRIDGE_INFO.token}`,
@@ -127,7 +151,12 @@ describe("apple bridge client and tools", () => {
     writeBridgeInfo();
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => jsonResponse(200, { chats: [] })),
+      vi.fn(async (input: unknown) => {
+        if (String(input).includes("/api/query")) {
+          return jsonResponse(200, { status: "success", value: null });
+        }
+        return jsonResponse(200, { chats: [] });
+      }),
     );
 
     const tool = createAppleTools().find((t) => t.name === "apple_list_chats");
