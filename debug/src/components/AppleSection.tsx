@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AppleIcon } from "@hugeicons/core-free-icons";
-import { api } from "../../../convex/_generated/api.js";
 import { panelCardClass, subtlePanelClass } from "./PanelPrimitives.js";
 
 type PermissionState = "granted" | "denied" | "notDetermined";
@@ -25,6 +23,9 @@ interface AppleBridgeStatus {
 
 interface AppleStatus {
   enabled: boolean;
+  messagesEnabled: boolean;
+  notesEnabled: boolean;
+  remindersEnabled: boolean;
   bridge: AppleBridgeStatus;
 }
 
@@ -42,15 +43,7 @@ export function AppleSection({ isDark }: { isDark: boolean }) {
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
-  const storedEnabled = useQuery(api.settings.get, { key: ENABLED_KEY });
-  const setSetting = useMutation(api.settings.set);
-
-  const enabled =
-    storedEnabled === undefined
-      ? (status?.enabled ?? false)
-      : storedEnabled === null
-        ? false
-        : storedEnabled === "true";
+  const enabled = status?.enabled ?? false;
 
   const refresh = useCallback(async () => {
     try {
@@ -66,20 +59,27 @@ export function AppleSection({ isDark }: { isDark: boolean }) {
 
   useEffect(() => {
     refresh();
-  }, [refresh, storedEnabled]);
+  }, [refresh]);
 
   async function setAppleEnabled(nextEnabled: boolean) {
     setBusy("Enable");
     setMessage(null);
     try {
-      await setSetting({ key: ENABLED_KEY, value: nextEnabled ? "true" : "false" });
+      const res = await fetch(`/api/apple/${nextEnabled ? "enable" : "disable"}`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `status ${res.status}`);
+      }
+      setStatus((await res.json()) as AppleStatus);
+      setLoaded(true);
       setMessage({
         tone: "ok",
         text: nextEnabled
           ? "Apple data access is enabled."
           : "Apple data access is disabled.",
       });
-      await refresh();
     } catch (err) {
       setMessage({ tone: "err", text: err instanceof Error ? err.message : String(err) });
     } finally {
@@ -187,11 +187,7 @@ export function AppleSection({ isDark }: { isDark: boolean }) {
               Calendar uses the optional Apple bridge.
             </div>
             <div className={`text-[10px] mono mt-2 ${subtle}`}>
-              {storedEnabled === undefined
-                ? `${ENABLED_KEY} = ...`
-                : storedEnabled === null
-                  ? `${ENABLED_KEY} = (default false)`
-                  : `${ENABLED_KEY} = "${storedEnabled}"`}
+              {loaded ? `${ENABLED_KEY} = "${enabled ? "true" : "false"}"` : `${ENABLED_KEY} = ...`}
             </div>
           </div>
         </div>
@@ -199,7 +195,7 @@ export function AppleSection({ isDark }: { isDark: boolean }) {
           <BridgePill running={running} version={bridge?.version ?? null} isDark={isDark} />
           <SwitchButton
             checked={enabled}
-            disabled={storedEnabled === undefined || busy !== null}
+            disabled={!loaded || busy !== null}
             label="Toggle Apple data access"
             isDark={isDark}
             onClick={() => setAppleEnabled(!enabled)}
