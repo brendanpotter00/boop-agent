@@ -12,6 +12,7 @@ import {
 const require = createRequire(import.meta.url);
 const SCREENSHOT_DIR = join(tmpdir(), "boop-browser-screenshots");
 const BROWSER_CLOSE_TIMEOUT_MS = 2_000;
+const BROWSER_LAUNCH_TIMEOUT_MS = 30_000;
 const BROWSER_INSTALL_TIMEOUT_MS = 5 * 60_000;
 const MAX_BROWSER_SCREENSHOTS = 20;
 type PatchrightModule = typeof import("patchright");
@@ -85,22 +86,85 @@ function detectChromePath(): string | null {
   if (process.env.BOOP_BROWSER_EXECUTABLE_PATH) {
     return process.env.BOOP_BROWSER_EXECUTABLE_PATH;
   }
-  const candidates =
-    platform() === "darwin"
+  const candidates = [...systemChromiumCandidates(), ...cachedChromiumCandidates()];
+  return candidates.find((candidate) => existsSync(candidate)) ?? null;
+}
+
+function systemChromiumCandidates(): string[] {
+  return platform() === "darwin"
+    ? [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Google Chrome Beta.app/Contents/MacOS/Google Chrome Beta",
+        "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+      ]
+    : platform() === "linux"
       ? [
-          "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-          "/Applications/Google Chrome Beta.app/Contents/MacOS/Google Chrome Beta",
-          "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+          "/usr/bin/google-chrome",
+          "/usr/bin/google-chrome-stable",
+          "/usr/bin/chromium",
+          "/usr/bin/chromium-browser",
         ]
-      : platform() === "linux"
+      : platform() === "win32"
         ? [
-            "/usr/bin/google-chrome",
-            "/usr/bin/google-chrome-stable",
-            "/usr/bin/chromium",
-            "/usr/bin/chromium-browser",
+            join(process.env.PROGRAMFILES ?? "", "Google", "Chrome", "Application", "chrome.exe"),
+            join(
+              process.env["PROGRAMFILES(X86)"] ?? "",
+              "Google",
+              "Chrome",
+              "Application",
+              "chrome.exe",
+            ),
           ]
         : [];
-  return candidates.find((candidate) => existsSync(candidate)) ?? null;
+}
+
+function cachedChromiumCandidates(): string[] {
+  const root =
+    platform() === "darwin"
+      ? join(homedir(), "Library", "Caches", "ms-playwright")
+      : platform() === "linux"
+        ? join(homedir(), ".cache", "ms-playwright")
+        : process.env.LOCALAPPDATA
+          ? join(process.env.LOCALAPPDATA, "ms-playwright")
+          : "";
+  if (!root || !existsSync(root)) return [];
+  let entries: string[];
+  try {
+    entries = readdirSync(root);
+  } catch {
+    return [];
+  }
+  return entries
+    .filter((entry) => /^chromium-\d+$/.test(entry))
+    .sort((a, b) => Number(b.slice("chromium-".length)) - Number(a.slice("chromium-".length)))
+    .flatMap((entry) => {
+      const base = join(root, entry);
+      return platform() === "darwin"
+        ? [
+            join(
+              base,
+              "chrome-mac-arm64",
+              "Google Chrome for Testing.app",
+              "Contents",
+              "MacOS",
+              "Google Chrome for Testing",
+            ),
+            join(
+              base,
+              "chrome-mac",
+              "Google Chrome for Testing.app",
+              "Contents",
+              "MacOS",
+              "Google Chrome for Testing",
+            ),
+          ]
+        : platform() === "linux"
+          ? [join(base, "chrome-linux", "chrome")]
+          : [
+              join(base, "chrome-win", "chrome.exe"),
+              join(base, "chrome-win64", "chrome.exe"),
+            ];
+    });
 }
 
 function patchrightVersion(): string {
@@ -116,7 +180,7 @@ async function loadPatchright(): Promise<PatchrightModule> {
   patchrightPromise ??= import("patchright").catch((err) => {
     patchrightPromise = null;
     throw new Error(
-      `Patchright is not installed. Install optional dependencies, then use "Install Chrome" if the browser binary is missing. (${err instanceof Error ? err.message : String(err)})`,
+      `Patchright is not installed. Install optional dependencies, then use "Install browser" if the browser binary is missing. (${err instanceof Error ? err.message : String(err)})`,
     );
   });
   return await patchrightPromise;
@@ -133,9 +197,15 @@ function launchSignature(settings: BrowserSettings, showUi: boolean): string {
     profileDir: resolve(expandHome(settings.profileDir)),
     showUi,
     channel: settings.channel,
-    executablePath: settings.executablePath,
+    executablePath: effectiveBrowserExecutablePath(settings),
     extraArgs: settings.extraArgs,
   });
+}
+
+function effectiveBrowserExecutablePath(settings: BrowserSettings): string {
+  return settings.executablePath.trim()
+    ? expandHome(settings.executablePath)
+    : (detectChromePath() ?? "");
 }
 
 async function getUsablePage(): Promise<Page> {
@@ -177,6 +247,35 @@ async function closeContextWithTimeout(current: BrowserContext): Promise<void> {
   });
 }
 
+async function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  message: string,
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error(message)), ms);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+function browserLaunchTimeoutMessage(settings: BrowserSettings): string {
+  const executablePath = effectiveBrowserExecutablePath(settings);
+  const target = executablePath
+    ? `browser executable at ${executablePath}`
+    : `browser channel "${settings.channel || "chrome"}"`;
+  return [
+    `Local browser launch timed out after ${Math.round(BROWSER_LAUNCH_TIMEOUT_MS / 1000)} seconds while starting ${target}.`,
+    "Use a Patchright-compatible Chrome or Chromium browser, or clear the custom executable path and click Install browser in Settings.",
+  ].join(" ");
+}
+
 async function closeActiveContext(): Promise<void> {
   const current = context;
   context = null;
@@ -209,6 +308,7 @@ export async function launchLocalBrowser(
     assertBrowserEnabled(settings);
     const { chromium } = await loadPatchright();
     const showUi = options.forceVisible ? true : settings.showUi;
+    const executablePath = effectiveBrowserExecutablePath(settings);
     const signature = launchSignature(settings, showUi);
     const targetUrl = normalizeUrl(options.url ?? settings.startUrl);
 
@@ -217,7 +317,7 @@ export async function launchLocalBrowser(
       if (targetUrl !== "about:blank") {
         await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
       }
-      return browserLaunchResult(settings, showUi, page.url());
+      return browserLaunchResult(settings, showUi, page.url(), executablePath);
     }
 
     if (context) await closeActiveContext();
@@ -234,15 +334,19 @@ export async function launchLocalBrowser(
       headless: !showUi,
       viewport: null,
       args: settings.extraArgs,
-      ...(settings.executablePath
-        ? { executablePath: expandHome(settings.executablePath) }
+      ...(executablePath
+        ? { executablePath }
         : { channel: settings.channel || "chrome" }),
     };
 
     console.log(
-      `[browser] launching Patchright Chrome showUi=${showUi} profile=${profileDir}`,
+      `[browser] launching Patchright browser showUi=${showUi} profile=${profileDir}`,
     );
-    context = await chromium.launchPersistentContext(profileDir, launchArgs);
+    context = await withTimeout(
+      chromium.launchPersistentContext(profileDir, launchArgs),
+      BROWSER_LAUNCH_TIMEOUT_MS,
+      browserLaunchTimeoutMessage(settings),
+    );
     context.on("close", () => {
       context = null;
       activePage = null;
@@ -255,7 +359,7 @@ export async function launchLocalBrowser(
     if (targetUrl !== "about:blank") {
       await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
     }
-    return browserLaunchResult(settings, showUi, page.url());
+    return browserLaunchResult(settings, showUi, page.url(), executablePath);
   })();
 
   try {
@@ -269,6 +373,7 @@ function browserLaunchResult(
   settings: BrowserSettings,
   showUi: boolean,
   url: string,
+  executablePath: string,
 ): LaunchResult {
   return {
     ok: true,
@@ -278,7 +383,7 @@ function browserLaunchResult(
     showUi,
     loginHandoffEnabled: settings.loginHandoffEnabled,
     channel: settings.channel,
-    executablePath: settings.executablePath,
+    executablePath,
     extraArgs: settings.extraArgs,
     patchrightVersion: patchrightVersion(),
     launchedAt: launchedAt ?? Date.now(),
@@ -372,7 +477,7 @@ export async function installPatchrightChrome(): Promise<InstallResult> {
   if (installPromise) return installPromise;
   const command = process.platform === "win32" ? "npx.cmd" : "npx";
   installPromise = new Promise((resolveInstall) => {
-    const child = spawn(command, ["-y", "patchright", "install", "chrome"], {
+    const child = spawn(command, ["-y", "patchright", "install", "chromium"], {
       cwd: process.cwd(),
       stdio: ["ignore", "pipe", "pipe"],
     });

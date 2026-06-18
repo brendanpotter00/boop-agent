@@ -131,7 +131,7 @@ You need accounts for these. Keep the tabs open — setup will ask for credentia
 
 **Custom integrations welcome.** Composio covers the common catalog, but you're free to add your own MCP servers under `server/integrations/` and register them in `server/integrations/registry.ts` — the dispatcher treats them the same as Composio-backed ones (just named toolkits the execution agent can spawn against). Useful for in-house APIs, local tools, or anything Composio doesn't ship.
 
-**Local browser use is fully optional.** Boop can expose a local Chrome profile to spawned agents, but it is off by default. Enable it from the debug dashboard under **Settings → Local browser use** when you want browser automation for login-only services, visual workflows, or bot-wall-sensitive pages. The Patchright Chrome binary is installed only if you opt in during setup or click the install button in Settings.
+**Local browser use is fully optional.** Boop can expose a local Chrome/Chromium profile to spawned agents, but it is off by default. Enable it from the debug dashboard under **Settings → Local browser use** when you want browser automation for login-only services, visual workflows, or bot-wall-sensitive pages. The Patchright browser binary is installed only if you opt in during setup or click the install button in Settings.
 
 ---
 
@@ -421,11 +421,11 @@ How it works:
 
 1. Open the debug dashboard → **Settings → Local browser use**.
 2. Turn on **Local browser use**. Until this is enabled, agents do not see the `browser` integration at all.
-3. Choose whether Chrome should be visible with **Show browser UI**. On means a Chrome window opens on your machine; off runs hidden/headless.
+3. Choose whether the browser should be visible with **Show browser UI**. On means a local browser window opens on your machine; off runs hidden/headless.
 4. Turn on **Spawn login instance** only when you want the agent to hand control to you for login or MFA. The agent will say: "I need you to log in first. I’ve spawned an instance on your machine."
-5. Use **Install Patchright Chrome** if Patchright has not installed its browser binary yet.
+5. Use **Install Patchright browser** if Patchright has not installed its browser binary yet.
 
-The browser uses a persistent Chrome profile, so cookies and login state can carry across runs. Boop does not store third-party service passwords or OAuth tokens for this feature; those live in the local Chrome profile you choose. The `browser_fill` tool redacts typed values before agent tool-use logs are stored. Settings are stored in Convex under the `settings` table, with `.env.local` values used only as fallbacks.
+The browser uses a persistent Chrome/Chromium profile, so cookies and login state can carry across runs. Boop does not store third-party service passwords or OAuth tokens for this feature; those live in the local browser profile you choose. The `browser_fill` tool redacts typed values before agent tool-use logs are stored. Settings are stored in Convex under the `settings` table, with `.env.local` values used only as fallbacks.
 
 Browser control HTTP routes are local-only. Requests forwarded through a public tunnel are rejected, so your ngrok/Sendblue URL cannot launch, close, or install a local browser.
 
@@ -686,7 +686,7 @@ Every release lists additions under [CHANGELOG.md](./CHANGELOG.md), with `[BREAK
 
 **Agent says Local browser use is off.**
 - Open the debug dashboard → **Settings → Local browser use** and turn it on. Agents cannot see or use the `browser` integration while it is disabled.
-- If launch fails, click **Install Patchright Chrome** in that same section, then try **Launch** again.
+- If launch fails, click **Install Patchright browser** in that same section, then try **Launch** again.
 - If you need to log in manually, also turn on **Spawn login instance** so the agent can open a visible handoff window.
 
 **I want to skip Sendblue for now.**

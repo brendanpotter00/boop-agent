@@ -43,7 +43,7 @@ export function createBrowserTools(namespace = RUNTIME_NAMESPACE): RuntimeTool[]
     defineRuntimeTool(
       namespace,
       "browser_open",
-      `Launch or reuse the user's local Patchright Chrome profile and navigate to a URL. ${FALLBACK_NOTE}`,
+      `Launch or reuse the user's local Patchright Chrome/Chromium profile and navigate to a URL. ${FALLBACK_NOTE}`,
       {
         url: z.string().describe("URL to open. Include the scheme when possible."),
       },
@@ -110,7 +110,7 @@ export function createBrowserTools(namespace = RUNTIME_NAMESPACE): RuntimeTool[]
     defineRuntimeTool(
       namespace,
       "browser_request_login",
-      `Open a visible local Chrome instance so the user can log in by hand. Use this for login services, MFA, bot-wall-sensitive sites, or anything likely to detect automation. The setting "Spawn an instance to log in" must be enabled.`,
+      `Open a visible local browser instance so the user can log in by hand. Use this for login services, MFA, bot-wall-sensitive sites, or anything likely to detect automation. The setting "Spawn an instance to log in" must be enabled.`,
       {
         url: z
           .string()

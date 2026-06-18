@@ -127,7 +127,7 @@ export function BrowserSection({ isDark }: { isDark: boolean }) {
         tone: "ok",
         text: nextEnabled
           ? "Local browser use is enabled."
-          : "Local browser use is disabled. Chrome was closed if it was running.",
+          : "Local browser use is disabled. The browser was closed if it was running.",
       });
       await refresh();
     } catch (err) {
@@ -159,10 +159,10 @@ export function BrowserSection({ isDark }: { isDark: boolean }) {
         text:
           data.message ??
           (path === "close"
-            ? "Chrome closed."
+            ? "Browser closed."
             : path === "install"
-              ? "Chrome installed for Patchright."
-              : `Chrome running at ${data.url ?? data.activeUrl ?? "about:blank"}.`),
+              ? "Patchright browser installed."
+              : `Browser running at ${data.url ?? data.activeUrl ?? "about:blank"}.`),
       });
       await refresh();
     } catch (err) {
@@ -195,7 +195,7 @@ export function BrowserSection({ isDark }: { isDark: boolean }) {
           <div className="min-w-0">
             <div className={`text-sm font-medium ${label}`}>Local browser use</div>
             <div className={`text-xs mt-1 leading-relaxed max-w-3xl ${muted}`}>
-              Optional local Chrome profile for login-required services, visual workflows,
+              Optional local Chrome/Chromium profile for login-required services, visual workflows,
               and pages that may reject ordinary automation.
             </div>
             <div className={`text-[10px] mono mt-2 ${subtle}`}>
@@ -223,7 +223,7 @@ export function BrowserSection({ isDark }: { isDark: boolean }) {
         <div className={`border-t px-4 py-4 ${isDark ? "border-white/10" : "border-zinc-200"}`}>
           <div className={subtlePanelClass(isDark, "px-3 py-3 text-xs leading-relaxed text-zinc-500")}>
             Off by default. Agents will not see or use the local browser integration until this is
-            enabled. Patchright Chrome is installed only when you use the install control below
+            enabled. The Patchright browser is installed only when you use the install control below
             after enabling it.
           </div>
           {message && <MessageLine message={message} isDark={isDark} />}
@@ -250,8 +250,8 @@ export function BrowserSection({ isDark }: { isDark: boolean }) {
               isDark={isDark}
             />
             <StatusMetric
-              label="Chrome"
-              value={status?.detectedChromePath ? "System detected" : "Not detected"}
+              label="Browser"
+              value={status?.detectedChromePath ? "Detected" : "Not detected"}
               icon={ComputerSettingsIcon}
               isDark={isDark}
             />
@@ -266,14 +266,14 @@ export function BrowserSection({ isDark }: { isDark: boolean }) {
           <BrowserGroup
             icon={EyeIcon}
             title="Behavior"
-            description="These switches control how agents use the local Chrome profile."
+            description="These switches control how agents use the local browser profile."
             isDark={isDark}
           >
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
               <BrowserToggle
                 settingKey={SHOW_UI_KEY}
                 label="Show browser UI"
-                description="Open Chrome on the desktop instead of running hidden."
+                description="Open the browser on the desktop instead of running hidden."
                 defaultEnabled={true}
                 isDark={isDark}
               />
@@ -362,7 +362,7 @@ export function BrowserSection({ isDark }: { isDark: boolean }) {
                     Advanced settings
                   </span>
                   <span className={`block text-[11px] mt-0.5 leading-relaxed ${subtle}`}>
-                    Profile path, startup URL, Chrome binary, extra flags, and install.
+                    Profile path, startup URL, browser binary, extra flags, and install.
                   </span>
                 </span>
               </span>
@@ -398,7 +398,7 @@ export function BrowserSection({ isDark }: { isDark: boolean }) {
                   />
                   <BrowserTextSetting
                     settingKey={CHANNEL_KEY}
-                    label="Chrome channel"
+                    label="Browser channel"
                     placeholder="chrome"
                     fallback="chrome"
                     isDark={isDark}
@@ -413,7 +413,7 @@ export function BrowserSection({ isDark }: { isDark: boolean }) {
                   <div className="xl:col-span-2">
                     <BrowserTextSetting
                       settingKey={EXTRA_ARGS_KEY}
-                      label="Extra Chrome flags"
+                      label="Extra browser flags"
                       placeholder="--disable-features=SomeFeature"
                       fallback="none"
                       multiline
@@ -427,7 +427,7 @@ export function BrowserSection({ isDark }: { isDark: boolean }) {
                   disabled={busy !== null}
                   onClick={() => callBrowser("Install", "install")}
                 >
-                  {busy === "Install" ? "Installing..." : "Install Patchright Chrome"}
+                  {busy === "Install" ? "Installing..." : "Install Patchright browser"}
                 </BrowserButton>
               </div>
             )}

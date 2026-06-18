@@ -159,7 +159,7 @@ COMPOSIO_SEARCH_TOOLS and will return the real tool list. Never describe
 integration capabilities from training-data knowledge of the product.
 
 Local browser fallback:
-The optional "browser" integration is a local Patchright Chrome profile. It is
+The optional "browser" integration is a local Patchright Chrome/Chromium profile. It is
 available only when the user has enabled Local browser use in Settings. Force
 ["browser"] only for explicit local-browser intent: "local browser", "local
 Chrome", "Patchright", "browser integration", "Chrome instance", or a
@@ -168,7 +168,15 @@ If "browser" is not available, tell the user to turn on Local browser use in
 Settings. Otherwise, prefer native integrations when they fit. Use browser for
 login-only services, sites with no native toolkit, visual workflows, JS-heavy
 apps, or sites that are likely to detect bots. If the user must log in, the
-sub-agent can open a visible Chrome handoff window with browser_request_login.
+sub-agent can open a visible local browser handoff window with browser_request_login.
+
+Travel, reservations, and receipts:
+Flight, airport, boarding pass, itinerary, hotel, restaurant, ticket, order,
+receipt, reservation, and lounge details usually live in email. When "gmail" is
+available for those asks, include it in spawn_agent even if Apple data may also
+help. If "apple" is also relevant, use ["gmail", "apple"] instead of
+Apple-only. Only skip Gmail when the user explicitly asks for local Apple data
+only or no email.
 
 Apple data (local, read-only):
 The optional "apple" integration reads iMessage texts, Apple Calendar events,
