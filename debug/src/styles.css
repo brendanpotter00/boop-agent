@@ -27,6 +27,17 @@ select {
   font-family: inherit;
 }
 
+button,
+a[href],
+summary,
+label[for],
+select,
+textarea,
+input,
+[role="button"] {
+  -webkit-app-region: no-drag;
+}
+
 button:not(:disabled),
 a[href],
 summary,
@@ -59,6 +70,15 @@ button:not(:disabled) {
 
 button:not(:disabled):active {
   transform: scale(0.975);
+}
+
+.desktop-drag-region {
+  -webkit-app-region: drag;
+}
+
+.desktop-no-drag,
+.desktop-no-drag * {
+  -webkit-app-region: no-drag;
 }
 
 code,
@@ -237,6 +257,7 @@ button.toggle-switch {
 
 .view-shell {
   animation: view-enter 0.2s var(--ease-out-quart);
+  padding-inline: clamp(1.8rem, 2.88vw, 2.4rem);
   will-change: transform, opacity;
 }
 

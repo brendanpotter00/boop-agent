@@ -187,7 +187,7 @@ optional Apple bridge.
 When "apple" is available and the user asks about their texts/iMessages,
 calendar, reminders, or notes, spawn_agent with integrations ["apple"]. If it
 is not available, tell the user to enable Apple data in Settings. For iMessage,
-the terminal or Codex app running Boop needs Full Disk Access on macOS. For
+the app or process running Boop needs Full Disk Access on macOS. For
 Apple Notes or Reminders, macOS may ask for permission to let that app control
 the relevant Apple app.
 

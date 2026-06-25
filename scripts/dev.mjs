@@ -72,6 +72,28 @@ function hasBinary(name) {
   });
 }
 
+const nodeCmd = process.env.BOOP_NODE_CMD || "node";
+
+const packageBinPaths = {
+  convex: ["convex", "bin", "main.js"],
+  tsx: ["tsx", "dist", "cli.mjs"],
+  vite: ["vite", "bin", "vite.js"],
+};
+
+function localBin(name) {
+  const ext = process.platform === "win32" ? ".cmd" : "";
+  const binPath = resolve(root, "node_modules", ".bin", `${name}${ext}`);
+  if (existsSync(binPath)) return { cmd: binPath, args: [] };
+
+  const packageBin = packageBinPaths[name];
+  if (packageBin) {
+    const scriptPath = resolve(root, "node_modules", ...packageBin);
+    if (existsSync(scriptPath)) return { cmd: nodeCmd, args: [scriptPath] };
+  }
+
+  return { cmd: name, args: [] };
+}
+
 // --- color-prefixed child runner ----------------------------------------
 const C = {
   server: "\x1b[36m",
@@ -84,6 +106,10 @@ const C = {
   reset: "\x1b[0m",
 };
 let dashboardUrl = "http://localhost:5173";
+let resolveNgrokOutputUrl;
+const ngrokOutputUrlReady = new Promise((resolve) => {
+  resolveNgrokOutputUrl = resolve;
+});
 
 // Vite's http-proxy attaches its own socket error logger that can't be removed
 // via configure(). EPIPE on WS reconnects is harmless — filter it at the
@@ -120,6 +146,12 @@ function run(name, cmd, args, readyPattern) {
         const localMatch = plain.match(/Local:\s+(http:\/\/\S+)/);
         if (localMatch) dashboardUrl = localMatch[1].replace(/\/$/, "");
       }
+      if (name === "ngrok") {
+        const urlMatch =
+          plain.match(/\burl=(https:\/\/\S+)/) ||
+          plain.match(/Forwarding\s+(https:\/\/\S+)/);
+        if (urlMatch) resolveNgrokOutputUrl(urlMatch[1].replace(/\/$/, ""));
+      }
 
       if (NOISE_TRIGGERS.some((r) => r.test(plain))) {
         suppressing = true;
@@ -141,20 +173,29 @@ function run(name, cmd, args, readyPattern) {
 }
 
 // --- ngrok URL banner: poll local API after launch ----------------------
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function readNgrokUrl() {
+  try {
+    const res = await fetch("http://127.0.0.1:4040/api/tunnels");
+    if (res.ok) {
+      const data = await res.json();
+      return data.tunnels?.find((t) => t.proto === "https")?.public_url ?? null;
+    }
+  } catch {
+    /* not up yet */
+  }
+  return null;
+}
+
 async function waitForNgrokUrl(timeoutMs = 15000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    try {
-      const res = await fetch("http://127.0.0.1:4040/api/tunnels");
-      if (res.ok) {
-        const data = await res.json();
-        const https = data.tunnels?.find((t) => t.proto === "https")?.public_url;
-        if (https) return https;
-      }
-    } catch {
-      /* not up yet */
-    }
-    await new Promise((r) => setTimeout(r, 500));
+    const https = await readNgrokUrl();
+    if (https) return https;
+    await sleep(500);
   }
   return null;
 }
@@ -214,27 +255,30 @@ console.log(`\nBoop dev starting on port ${port}. Ctrl-C to stop everything.\n`)
 // won't collide with startup logs. Silent on the happy path. Not added to
 // the `children` array because it exits on its own — we don't want its
 // non-zero exit (which shouldn't happen but hedge anyway) to tear down dev.
-run("upstream", "node", ["scripts/check-upstream.mjs"]);
+run("upstream", nodeCmd, ["scripts/check-upstream.mjs"]);
 
+const tsxBin = localBin("tsx");
 const serverChild = run(
   "server",
-  "npx",
-  ["tsx", "watch", "server/index.ts"],
+  tsxBin.cmd,
+  [...tsxBin.args, "watch", "server/index.ts"],
   /listening on :/,
 );
 convexEnvFile = writeConvexDevEnvFile();
 const convexArgs = ["convex", "dev"];
 if (convexEnvFile) convexArgs.push("--env-file", convexEnvFile);
+const convexBin = localBin("convex");
 const convexChild = run(
   "convex",
-  "npx",
-  convexArgs,
+  convexBin.cmd,
+  [...convexBin.args, ...convexArgs.slice(1)],
   /Convex functions ready/,
 );
+const viteBin = localBin("vite");
 const debugChild = run(
   "debug",
-  "npx",
-  ["vite", "--config", "debug/vite.config.ts"],
+  viteBin.cmd,
+  [...viteBin.args, "--config", "debug/vite.config.ts"],
   /Local:\s+http/,
 );
 const children = [serverChild, convexChild, debugChild];
@@ -246,7 +290,10 @@ if (useNgrok && ngrokInstalled) {
     : ["http", port, "--log=stdout", "--log-format=term", "--log-level=info"];
   const ngrokChild = run("ngrok", "ngrok", args);
   children.push(ngrokChild);
-  ngrokUrlReady = waitForNgrokUrl().catch(() => null);
+  ngrokUrlReady = Promise.race([
+    ngrokOutputUrlReady,
+    new Promise((resolve) => setTimeout(() => resolve(null), 10000)),
+  ]).then((url) => url ?? waitForNgrokUrl().catch(() => null));
 }
 
 // Wait for all the core services to be ready before printing the banner,
@@ -255,7 +302,7 @@ async function autoRegisterWebhook(publicUrl) {
   if (envVars.SENDBLUE_AUTO_WEBHOOK === "false") return;
   const webhookUrl = `${publicUrl}/sendblue/webhook`;
   const prefix = `${C.ngrok}webhook${C.reset} │ `;
-  const child = spawn("node", ["scripts/sendblue-webhook.mjs", webhookUrl], {
+  const child = spawn(nodeCmd, ["scripts/sendblue-webhook.mjs", webhookUrl], {
     cwd: root,
     env: { ...process.env },
   });
@@ -272,11 +319,36 @@ async function autoRegisterWebhook(publicUrl) {
   await new Promise((r) => child.on("exit", r));
 }
 
+let sendblueWebhookRegistrationUrl = "";
+let sendblueWebhookRegistration = Promise.resolve();
+function registerSendblueWebhookOnce(publicUrl) {
+  if (sendblueWebhookRegistrationUrl === publicUrl) return sendblueWebhookRegistration;
+  sendblueWebhookRegistrationUrl = publicUrl;
+  sendblueWebhookRegistration = sendblueWebhookRegistration.then(() =>
+    autoRegisterWebhook(publicUrl),
+  );
+  return sendblueWebhookRegistration;
+}
+
+async function registerSendblueWhenTunnelAppears() {
+  await sleep(2500);
+  const start = Date.now();
+  while (Date.now() - start < 60000) {
+    const publicUrl = await readNgrokUrl();
+    if (publicUrl) {
+      await registerSendblueWebhookOnce(publicUrl);
+      return;
+    }
+    await sleep(1000);
+  }
+}
+
 async function autoRegisterComposioWebhook(publicUrl) {
   if (envVars.COMPOSIO_AUTO_WEBHOOK === "false") return;
   if (!envVars.COMPOSIO_API_KEY) return;
   const prefix = `${C.ngrok}composio${C.reset} │ `;
-  const child = spawn("npx", ["tsx", "scripts/composio-webhook.ts", publicUrl], {
+  const tsxBin = localBin("tsx");
+  const child = spawn(tsxBin.cmd, [...tsxBin.args, "scripts/composio-webhook.ts", publicUrl], {
     cwd: root,
     env: { ...process.env },
   });
@@ -291,6 +363,10 @@ async function autoRegisterComposioWebhook(publicUrl) {
     }
   });
   await new Promise((r) => child.on("exit", r));
+}
+
+if (useNgrok && ngrokInstalled && !ngrokDomain) {
+  registerSendblueWhenTunnelAppears().catch(() => {});
 }
 
 Promise.all([
@@ -305,7 +381,7 @@ Promise.all([
         // Only auto-register for ephemeral ngrok URLs. Reserved domains and
         // static URLs are already fixed in the Sendblue dashboard.
         if (!ngrokDomain) {
-          await autoRegisterWebhook(ngrokUrl);
+          await registerSendblueWebhookOnce((await readNgrokUrl()) ?? ngrokUrl);
         }
         // Composio webhook subscription is fully programmatic (PATCHable),
         // so we can refresh it on every restart regardless of whether the

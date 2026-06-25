@@ -401,7 +401,7 @@ export function ComposioSection({ isDark }: { isDark: boolean }) {
         showToast(`Could not open Full Disk Access settings: ${err?.error ?? r.statusText}`);
         return;
       }
-      showToast("Opened Full Disk Access settings. Add Codex, Terminal, or the app running Boop, then restart npm run dev.", "info");
+      showToast("Opened Full Disk Access settings. Add Boop, then restart Boop from the Connection header.", "info");
     } catch (err) {
       showToast(`Could not open Full Disk Access settings: ${String(err)}`);
     } finally {
@@ -419,7 +419,7 @@ export function ComposioSection({ isDark }: { isDark: boolean }) {
         showToast(`Could not open Automation settings: ${err?.error ?? r.statusText}`);
         return;
       }
-      showToast(`Opened Automation settings. Enable ${label} for Codex, Terminal, or the app running Boop.`, "info");
+      showToast(`Opened Automation settings. Enable ${label} for Boop.`, "info");
     } catch (err) {
       showToast(`Could not open Automation settings: ${String(err)}`);
     } finally {
@@ -805,7 +805,7 @@ function IMessageConnectionCard({
             </span>
           </div>
           <p className={`text-xs ${muted} leading-snug mt-0.5 line-clamp-2`}>
-            Reads local Messages history from this Mac. The terminal app running the server needs Full Disk Access.
+            Reads local Messages history from this Mac. Boop needs Full Disk Access.
           </p>
           <div className="mt-1.5 flex flex-wrap items-center gap-2">
             <span className={`inline-flex items-center gap-1.5 text-xs ${state.textClass}`}>
@@ -874,7 +874,7 @@ function IMessageConnectionCard({
         >
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <span>
-              Grant Full Disk Access to the terminal or Codex app running the Boop server, then restart npm run dev.
+              Grant Full Disk Access to Boop, then restart Boop from the Connection header.
             </span>
             <button
               type="button"

@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' file: data: http://localhost:*; connect-src 'self' http://localhost:* ws://localhost:*; frame-src http://localhost:*;"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Boop</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+        background: #101012;
+        color: #f4f4f5;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body,
+      .app,
+      .dashboard-shell {
+        width: 100%;
+        height: 100%;
+      }
+
+      body {
+        margin: 0;
+        overflow: hidden;
+        background: #101012;
+      }
+
+      button {
+        -webkit-app-region: no-drag;
+        height: 32px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 7px;
+        background: #f4f4f5;
+        color: #18181b;
+        padding: 0 12px;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 650;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      button.secondary {
+        background: rgba(255, 255, 255, 0.06);
+        color: #f4f4f5;
+      }
+
+      button:disabled {
+        opacity: 0.42;
+        cursor: default;
+      }
+
+      .dashboard-shell {
+        position: relative;
+        min-height: 0;
+        background: #101012;
+      }
+
+      .drag-strip {
+        -webkit-app-region: drag;
+        position: absolute;
+        z-index: 5;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 14px;
+      }
+
+      .drag-sidebar {
+        -webkit-app-region: drag;
+        position: absolute;
+        z-index: 5;
+        top: 0;
+        left: 0;
+        width: 244px;
+        height: 48px;
+      }
+
+      .drag-header-main {
+        -webkit-app-region: drag;
+        position: absolute;
+        z-index: 5;
+        top: 0;
+        left: 244px;
+        right: 300px;
+        height: 56px;
+      }
+
+      iframe {
+        width: 100%;
+        height: 100%;
+        border: 0;
+        background: #101012;
+        display: none;
+      }
+
+      iframe.visible {
+        display: block;
+      }
+
+      .empty {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+
+      .empty.hidden {
+        display: none;
+      }
+
+      .empty-panel {
+        width: min(520px, calc(100vw - 48px));
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        background: rgba(24, 24, 27, 0.9);
+        padding: 24px;
+        box-shadow: 0 18px 56px rgba(0, 0, 0, 0.34);
+      }
+
+      .empty-title {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 720;
+        letter-spacing: 0;
+      }
+
+      .empty-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 18px;
+      }
+
+      .message {
+        min-width: 0;
+        margin-top: 10px;
+        color: #d4d4d8;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 12px;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+      }
+
+      .empty-detail {
+        margin-top: 8px;
+        color: #a1a1aa;
+        font-size: 12px;
+        line-height: 1.5;
+        overflow-wrap: anywhere;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <main class="dashboard-shell">
+        <div class="drag-strip" aria-hidden="true"></div>
+        <div class="drag-sidebar" aria-hidden="true"></div>
+        <div class="drag-header-main" aria-hidden="true"></div>
+        <iframe id="dashboard-frame" title="Boop dashboard"></iframe>
+        <div class="empty" id="dashboard-empty">
+          <section class="empty-panel">
+            <h1 class="empty-title" id="empty-title">Boop is stopped</h1>
+            <div class="message" id="message">Waiting for Boop.</div>
+            <div class="empty-actions">
+              <button id="open-dashboard">Dashboard</button>
+              <button class="secondary" id="start">Start</button>
+              <button class="secondary" id="stop">Stop</button>
+              <button class="secondary" id="restart">Restart</button>
+            </div>
+            <div class="empty-detail" id="runtime-root"></div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <script src="./status.js"></script>
+  </body>
+</html>

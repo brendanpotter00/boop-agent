@@ -1,10 +1,12 @@
 #!/usr/bin/env tsx
 import prompts from "prompts";
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { delimiter, dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const ROOT = resolve(new URL(".", import.meta.url).pathname, "..");
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const ENV_PATH = resolve(ROOT, ".env.local");
 const EXAMPLE_PATH = resolve(ROOT, ".env.example");
 
@@ -13,6 +15,11 @@ type RuntimeChoice = "claude" | "codex";
 const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6";
 const DEFAULT_CODEX_MODEL = "gpt-5.5";
 const DEFAULT_CODEX_REASONING_EFFORT = "medium";
+
+interface CommandSpec {
+  cmd: string;
+  leading: string[];
+}
 
 const CLAUDE_MODEL_CHOICES = [
   { title: "claude-sonnet-4-6 (recommended)", value: "claude-sonnet-4-6" },
@@ -109,6 +116,124 @@ function banner(s: string) {
   console.log("━".repeat(60));
 }
 
+function executableNames(name: string): string[] {
+  if (process.platform !== "win32") return [name];
+  if (/\.(cmd|exe|bat)$/i.test(name)) return [name];
+  return [`${name}.cmd`, `${name}.exe`, `${name}.bat`, name];
+}
+
+function commandSearchDirs(): string[] {
+  const dirs = [
+    resolve(ROOT, "node_modules", ".bin"),
+    ...((process.env.PATH ?? "").split(delimiter).filter(Boolean)),
+  ];
+  if (process.platform === "darwin") {
+    dirs.push(
+      resolve(homedir(), ".local", "bin"),
+      resolve(homedir(), ".npm-global", "bin"),
+      "/opt/homebrew/bin",
+      "/usr/local/bin",
+      "/usr/bin",
+      "/bin",
+    );
+  }
+  dirs.push(dirname(process.execPath));
+  return [...new Set(dirs)];
+}
+
+function resolveCommand(name: string): string | null {
+  if (name.includes("/") || name.includes("\\")) {
+    return existsSync(name) ? name : null;
+  }
+  for (const dir of commandSearchDirs()) {
+    for (const executable of executableNames(name)) {
+      const candidate = resolve(dir, executable);
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
+function spawnableNodeCommand(): string {
+  const candidates = [
+    ...(process.platform === "darwin" ? ["/opt/homebrew/bin/node", "/usr/local/bin/node"] : []),
+    resolveCommand("node"),
+    "node",
+    process.execPath,
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  return candidates.find((candidate) => candidate === "node" || existsSync(candidate)) ?? "node";
+}
+
+function nodeScriptCommand(scriptPath: string, leading: string[]): CommandSpec {
+  const node = spawnableNodeCommand();
+  if (process.platform !== "win32" && node !== "node") {
+    return {
+      cmd: "/bin/sh",
+      leading: ["-lc", `exec "${node}" "$@"`, "boop-node", scriptPath, ...leading],
+    };
+  }
+  return { cmd: node, leading: [scriptPath, ...leading] };
+}
+
+function npmExecCommand(packageName: string, binName: string): CommandSpec | null {
+  const npm = resolveCommand("npm");
+  if (npm) {
+    try {
+      const npmCli = realpathSync(npm);
+      if (npmCli.endsWith(".js")) {
+        return nodeScriptCommand(npmCli, [
+          "exec",
+          "--yes",
+          "--package",
+          packageName,
+          "--",
+          binName,
+        ]);
+      }
+    } catch {
+      /* fall through to spawning npm directly */
+    }
+    return {
+      cmd: npm,
+      leading: ["exec", "--yes", "--package", packageName, "--", binName],
+    };
+  }
+
+  const npx = resolveCommand("npx");
+  if (npx) {
+    try {
+      const npxCli = realpathSync(npx);
+      if (npxCli.endsWith(".js")) {
+        return nodeScriptCommand(npxCli, ["-y", packageName]);
+      }
+    } catch {
+      /* fall through to spawning npx directly */
+    }
+    return { cmd: npx, leading: ["-y", packageName] };
+  }
+
+  return null;
+}
+
+function commandEnv(): NodeJS.ProcessEnv {
+  const pathKey = process.platform === "win32" ? "Path" : "PATH";
+  const currentPath = process.env[pathKey] ?? process.env.PATH ?? "";
+  return {
+    ...process.env,
+    [pathKey]: [...commandSearchDirs(), currentPath].filter(Boolean).join(delimiter),
+  };
+}
+
+function packageCommand(binName: string, packageName = binName): CommandSpec {
+  const direct = resolveCommand(binName);
+  if (direct) return { cmd: direct, leading: [] };
+
+  const npmExec = npmExecCommand(packageName, binName);
+  if (npmExec) return npmExec;
+
+  throw new Error(`Could not find ${binName}, npx, or npm on PATH.`);
+}
+
 async function runConvexDev(): Promise<void> {
   // If CONVEX_DEPLOYMENT is already set, `convex dev` reuses that deployment.
   // Only pass --configure new if this is a first-time setup — otherwise re-running
@@ -124,8 +249,9 @@ async function runConvexDev(): Promise<void> {
     cleanConvexUrlEnv(ENV_PATH);
   }
 
+  const runner = packageCommand("convex", "convex");
   console.log(
-    `\nLaunching \`npx ${args.join(" ")}\` to configure your deployment.`,
+    `\nLaunching \`${[runner.cmd, ...runner.leading, ...args.slice(1)].join(" ")}\` to configure your deployment.`,
   );
   console.log("Convex will open a browser window if you're not logged in.");
   if (existing.CONVEX_DEPLOYMENT) {
@@ -133,7 +259,11 @@ async function runConvexDev(): Promise<void> {
   }
 
   await new Promise<void>((resolvePromise, reject) => {
-    const child = spawn("npx", args, { stdio: "inherit", cwd: ROOT });
+    const child = spawn(runner.cmd, [...runner.leading, ...args.slice(1)], {
+      stdio: "inherit",
+      cwd: ROOT,
+      env: commandEnv(),
+    });
     child.on("exit", (code) =>
       code === 0 ? resolvePromise() : reject(new Error(`convex dev exited ${code}`)),
     );
@@ -141,9 +271,10 @@ async function runConvexDev(): Promise<void> {
 }
 
 function hasBinary(name: string): Promise<boolean> {
+  if (resolveCommand(name)) return Promise.resolve(true);
   return new Promise((ok) => {
     const lookup = process.platform === "win32" ? "where" : "which";
-    const child = spawn(lookup, [name], { stdio: "ignore" });
+    const child = spawn(lookup, [name], { stdio: "ignore", env: commandEnv() });
     child.on("exit", (code) => ok(code === 0));
     child.on("error", () => ok(false));
   });
@@ -165,7 +296,12 @@ function openInBrowser(url: string): void {
 
 function runInherit(cmd: string, args: string[]): Promise<void> {
   return new Promise((ok, fail) => {
-    const child = spawn(cmd, args, { stdio: "inherit", cwd: ROOT });
+    const resolved = cmd === "node" ? cmd : (resolveCommand(cmd) ?? cmd);
+    const child = spawn(resolved, args, {
+      stdio: "inherit",
+      cwd: ROOT,
+      env: commandEnv(),
+    });
     child.on("exit", (code) =>
       code === 0 ? ok() : fail(new Error(`${cmd} ${args.join(" ")} exited ${code}`)),
     );
@@ -173,14 +309,19 @@ function runInherit(cmd: string, args: string[]): Promise<void> {
   });
 }
 
-function runCapture(cmd: string, args: string[]): Promise<string> {
+function runCapture(cmd: string, args: string[], options: { echoOutput?: boolean } = {}): Promise<string> {
   return new Promise((ok, fail) => {
-    const child = spawn(cmd, args, { stdio: ["inherit", "pipe", "pipe"], cwd: ROOT });
+    const resolved = cmd === "node" ? cmd : (resolveCommand(cmd) ?? cmd);
+    const child = spawn(resolved, args, {
+      stdio: ["inherit", "pipe", "pipe"],
+      cwd: ROOT,
+      env: commandEnv(),
+    });
     let out = "";
     child.stdout.on("data", (d) => {
       const s = d.toString();
       out += s;
-      process.stdout.write(s);
+      if (options.echoOutput !== false) process.stdout.write(s);
     });
     child.stderr.on("data", (d) => process.stderr.write(d));
     child.on("exit", (code) =>
@@ -190,9 +331,14 @@ function runCapture(cmd: string, args: string[]): Promise<string> {
   });
 }
 
-async function sendblueInvoker(): Promise<{ cmd: string; leading: string[] }> {
-  if (await hasBinary("sendblue")) return { cmd: "sendblue", leading: [] };
-  return { cmd: "npx", leading: ["-y", "@sendblue/cli"] };
+async function sendblueInvoker(): Promise<CommandSpec> {
+  const sendblue = resolveCommand("sendblue");
+  if (sendblue) return { cmd: sendblue, leading: [] };
+
+  const npmExec = npmExecCommand("@sendblue/cli", "sendblue");
+  if (npmExec) return npmExec;
+
+  throw new Error("Could not find sendblue, npx, or npm on PATH.");
 }
 
 interface SendblueKeys {
@@ -312,9 +458,18 @@ async function importSendblueFromCli(): Promise<SendblueImportResult> {
 
   banner("Sendblue CLI");
   try {
-    await runInherit(cmd, [...leading, account === "setup" ? "setup" : "login"]);
+    if (account === "setup") {
+      await runInherit(cmd, [...leading, "setup"]);
+    } else {
+      try {
+        await runCapture(cmd, [...leading, "whoami"], { echoOutput: false });
+        console.log("\n✓ Sendblue CLI is already logged in.");
+      } catch {
+        await runInherit(cmd, [...leading, "login"]);
+      }
+    }
     console.log("\nFetching your Sendblue keys…\n");
-    const output = await runCapture(cmd, [...leading, "show-keys"]);
+    const output = await runCapture(cmd, [...leading, "show-keys"], { echoOutput: false });
     const parsed = parseSendblueKeys(output);
     if (!parsed.apiKey || !parsed.apiSecret) {
       console.log(
@@ -637,7 +792,8 @@ so you can switch later by adding/removing the API key.
     if (preload) {
       console.log("\nDownloading Xenova/bge-large-en-v1.5… (Ctrl+C to skip)\n");
       try {
-        await runInherit("npx", ["tsx", "scripts/preload-embeddings.ts"]);
+        const tsx = packageCommand("tsx", "tsx");
+        await runInherit(tsx.cmd, [...tsx.leading, "scripts/preload-embeddings.ts"]);
         console.log("✓ Local model cached.");
       } catch (err) {
         console.warn(
@@ -691,7 +847,8 @@ the browser integration unless you enable it.
     if (installBrowser) {
       console.log("\nInstalling Patchright Chrome… (Ctrl+C to skip)\n");
       try {
-        await runInherit("npx", ["-y", "patchright", "install", "chrome"]);
+        const patchright = packageCommand("patchright", "patchright");
+        await runInherit(patchright.cmd, [...patchright.leading, "install", "chrome"]);
         console.log("✓ Patchright Chrome installed.");
       } catch (err) {
         console.warn(

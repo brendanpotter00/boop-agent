@@ -75,6 +75,13 @@ async function main() {
     }
   });
 
+  app.get("/connection-config", (_req, res) => {
+    res.json({
+      phoneNumber: process.env.SENDBLUE_FROM_NUMBER || "",
+      publicUrl: process.env.PUBLIC_URL || "",
+    });
+  });
+
   app.post("/runtime-config", async (req, res) => {
     try {
       const body = req.body as {
