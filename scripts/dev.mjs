@@ -43,6 +43,7 @@ const publicUrl = envVars.PUBLIC_URL || "";
 const hasStaticUrl =
   publicUrl && !publicUrl.includes("localhost") && !publicUrl.includes("127.0.0.1");
 const useNgrok = !hasStaticUrl || Boolean(ngrokDomain);
+const cloudflareTunnel = envVars.CLOUDFLARE_TUNNEL || "";
 let convexEnvFile = null;
 
 function writeConvexDevEnvFile() {
@@ -72,12 +73,25 @@ function hasBinary(name) {
   });
 }
 
+// True if a process whose command line matches `pattern` is already running.
+// Used so we don't spawn a second cloudflared when the tunnel is already up
+// in another terminal or as a launchd service. pgrep is mac/linux only.
+function isProcessRunning(pattern) {
+  return new Promise((ok) => {
+    if (process.platform === "win32") return ok(false);
+    const child = spawn("pgrep", ["-f", pattern], { stdio: "ignore" });
+    child.on("exit", (code) => ok(code === 0));
+    child.on("error", () => ok(false));
+  });
+}
+
 // --- color-prefixed child runner ----------------------------------------
 const C = {
   server: "\x1b[36m",
   convex: "\x1b[35m",
   debug: "\x1b[33m",
   ngrok: "\x1b[32m",
+  tunnel: "\x1b[32m",
   upstream: "\x1b[34m",
   banner: "\x1b[1;32m",
   dim: "\x1b[2m",
@@ -247,6 +261,23 @@ if (useNgrok && ngrokInstalled) {
   const ngrokChild = run("ngrok", "ngrok", args);
   children.push(ngrokChild);
   ngrokUrlReady = waitForNgrokUrl().catch(() => null);
+}
+
+// Auto-start a named Cloudflare tunnel when CLOUDFLARE_TUNNEL is set, unless
+// one is already running (separate terminal or installed launchd service).
+// The child is added to `children`, so Ctrl-C tears it down with everything else.
+if (cloudflareTunnel) {
+  if (!(await hasBinary("cloudflared"))) {
+    console.log(
+      `${C.tunnel}tunnel${C.reset} │ cloudflared not installed — run: brew install cloudflared`,
+    );
+  } else if (await isProcessRunning(`cloudflared.*tunnel.*run.*${cloudflareTunnel}`)) {
+    console.log(
+      `${C.tunnel}tunnel${C.reset} │ cloudflared tunnel "${cloudflareTunnel}" already running — reusing it.`,
+    );
+  } else {
+    children.push(run("tunnel", "cloudflared", ["tunnel", "run", cloudflareTunnel]));
+  }
 }
 
 // Wait for all the core services to be ready before printing the banner,
