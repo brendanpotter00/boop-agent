@@ -230,6 +230,17 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_key", ["key"]),
 
+  // Cached on-device transcripts for Apple Voice Memos so Whisper runs at most
+  // once per recording. Keyed by the recording's stable ZUNIQUEID; audioMtime
+  // and model let a reader invalidate when the audio or ASR model changes.
+  voiceMemoTranscripts: defineTable({
+    recordingId: v.string(),
+    audioMtime: v.number(),
+    text: v.string(),
+    model: v.string(),
+    updatedAt: v.number(),
+  }).index("by_recording", ["recordingId"]),
+
   automationRuns: defineTable({
     runId: v.string(),
     automationId: v.string(),

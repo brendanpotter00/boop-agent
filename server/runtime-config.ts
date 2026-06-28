@@ -20,6 +20,7 @@ export const APPLE_ENABLED_KEY = "apple_enabled";
 export const APPLE_MESSAGES_ENABLED_KEY = "apple_messages_enabled";
 export const APPLE_NOTES_ENABLED_KEY = "apple_notes_enabled";
 export const APPLE_REMINDERS_ENABLED_KEY = "apple_reminders_enabled";
+export const APPLE_VOICEMEMOS_ENABLED_KEY = "apple_voicememos_enabled";
 const CONFIG_TTL_MS = 30 * 1000;
 const BROWSER_CONFIG_TTL_MS = 5 * 1000;
 const APPLE_CONFIG_TTL_MS = 5 * 1000;
@@ -51,6 +52,7 @@ export interface AppleSettings {
   messagesEnabled: boolean;
   notesEnabled: boolean;
   remindersEnabled: boolean;
+  voiceMemosEnabled: boolean;
 }
 
 const DEFAULT_BROWSER_PROFILE_DIR = join(homedir(), ".boop", "browser-profile");
@@ -327,12 +329,14 @@ export async function getAppleSettings(): Promise<AppleSettings> {
     return cachedAppleSettings.value;
   }
 
-  const [enabled, messagesEnabled, notesEnabled, remindersEnabled] = await Promise.all([
-    getSetting(APPLE_ENABLED_KEY),
-    getSetting(APPLE_MESSAGES_ENABLED_KEY),
-    getSetting(APPLE_NOTES_ENABLED_KEY),
-    getSetting(APPLE_REMINDERS_ENABLED_KEY),
-  ]);
+  const [enabled, messagesEnabled, notesEnabled, remindersEnabled, voiceMemosEnabled] =
+    await Promise.all([
+      getSetting(APPLE_ENABLED_KEY),
+      getSetting(APPLE_MESSAGES_ENABLED_KEY),
+      getSetting(APPLE_NOTES_ENABLED_KEY),
+      getSetting(APPLE_REMINDERS_ENABLED_KEY),
+      getSetting(APPLE_VOICEMEMOS_ENABLED_KEY),
+    ]);
   const appleEnabled = settingBool(enabled, process.env.BOOP_APPLE_ENABLED, false);
   const value: AppleSettings = {
     enabled: appleEnabled,
@@ -351,6 +355,13 @@ export async function getAppleSettings(): Promise<AppleSettings> {
       settingBool(
         remindersEnabled,
         process.env.BOOP_APPLE_REMINDERS_ENABLED,
+        false,
+      ),
+    voiceMemosEnabled:
+      appleEnabled &&
+      settingBool(
+        voiceMemosEnabled,
+        process.env.BOOP_APPLE_VOICEMEMOS_ENABLED,
         false,
       ),
   };

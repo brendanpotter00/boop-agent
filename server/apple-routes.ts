@@ -10,6 +10,7 @@ import {
   APPLE_MESSAGES_ENABLED_KEY,
   APPLE_NOTES_ENABLED_KEY,
   APPLE_REMINDERS_ENABLED_KEY,
+  APPLE_VOICEMEMOS_ENABLED_KEY,
   clearAppleSettingsCache,
   getAppleSettings,
 } from "./runtime-config.js";
@@ -22,10 +23,11 @@ interface AppleStatusResponse {
   messagesEnabled: boolean;
   notesEnabled: boolean;
   remindersEnabled: boolean;
+  voiceMemosEnabled: boolean;
   bridge: AppleBridgeStatus;
 }
 
-type AppleSource = "messages" | "notes" | "reminders";
+type AppleSource = "messages" | "notes" | "reminders" | "voicememos";
 
 const execFileAsync = promisify(execFile);
 const FULL_DISK_ACCESS_URL =
@@ -55,6 +57,7 @@ async function appleStatus(): Promise<AppleStatusResponse> {
     messagesEnabled: settings.messagesEnabled,
     notesEnabled: settings.notesEnabled,
     remindersEnabled: settings.remindersEnabled,
+    voiceMemosEnabled: settings.voiceMemosEnabled,
     bridge,
   };
 }
@@ -77,7 +80,9 @@ async function setAppleSourceEnabled(
       ? APPLE_MESSAGES_ENABLED_KEY
       : source === "notes"
         ? APPLE_NOTES_ENABLED_KEY
-        : APPLE_REMINDERS_ENABLED_KEY;
+        : source === "reminders"
+          ? APPLE_REMINDERS_ENABLED_KEY
+          : APPLE_VOICEMEMOS_ENABLED_KEY;
   await Promise.all([
     enabled
       ? convex.mutation(api.settings.set, {
@@ -179,6 +184,22 @@ export function createAppleRouter(): express.Router {
   router.post("/reminders/disable", async (_req, res) => {
     try {
       res.json(await setAppleSourceEnabled("reminders", false));
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/voicememos/enable", async (_req, res) => {
+    try {
+      res.json(await setAppleSourceEnabled("voicememos", true));
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/voicememos/disable", async (_req, res) => {
+    try {
+      res.json(await setAppleSourceEnabled("voicememos", false));
     } catch (err) {
       res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
     }
