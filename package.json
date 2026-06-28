@@ -8,6 +8,7 @@
   "scripts": {
     "setup": "tsx scripts/setup.ts",
     "sendblue:sync": "node scripts/sendblue-sync.mjs",
+    "wiki:sync": "tsx scripts/wiki-sync.ts",
     "sendblue:webhook": "node scripts/sendblue-webhook.mjs",
     "preflight": "node scripts/preflight.mjs",
     "dev": "node scripts/dev.mjs",

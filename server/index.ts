@@ -43,6 +43,11 @@ async function main() {
   // recall() doesn't pay the model-load cost.
   preloadLocalModel();
 
+  // Keep the derived wiki index in sync with the vault (no-op unless
+  // WIKI_VAULT_PATH is set). Watches the vault + periodic safety sync.
+  const { startWikiSync } = await import("./wiki/watch.js");
+  startWikiSync();
+
   // If a stable public URL is configured, register the Composio webhook +
   // Gmail trigger now. For ngrok-based dev, scripts/dev.mjs drives the same
   // function once the ngrok URL is known, so we skip when only the local
@@ -145,6 +150,16 @@ async function main() {
         console.error("[consolidation] manual run failed", err),
       );
       res.json({ ok: true, triggered: "manual" });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  app.post("/wiki/sync", async (_req, res) => {
+    try {
+      const { runWikiSyncNow } = await import("./wiki/watch.js");
+      const stats = await runWikiSyncNow();
+      res.json({ ok: true, stats });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }

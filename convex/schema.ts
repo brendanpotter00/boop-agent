@@ -63,6 +63,48 @@ export default defineSchema({
       filterFields: ["lifecycle"],
     }),
 
+  // Derived, one-way index of the personal wiki vault (the vault is the source
+  // of truth; this is a rebuildable cache kept in sync by server/wiki/sync.ts).
+  // Separate from memoryRecords on purpose so memory consolidation/decay never
+  // touches it. One row per chunk of a page.
+  wikiChunks: defineTable({
+    path: v.string(), // vault-relative, e.g. "wiki/people/x.md"
+    title: v.string(),
+    heading: v.optional(v.string()),
+    chunkIndex: v.number(),
+    content: v.string(),
+    contentHash: v.string(),
+    section: v.union(v.literal("wiki"), v.literal("raw")),
+    embedding: v.optional(v.array(v.float64())),
+    lifecycle: v.union(v.literal("active"), v.literal("deleted")),
+    updatedAt: v.number(),
+  })
+    .index("by_path", ["path"])
+    .index("by_path_and_chunk", ["path", "chunkIndex"])
+    .index("by_lifecycle", ["lifecycle"])
+    .vectorIndex("by_embedding", {
+      vectorField: "embedding",
+      dimensions: 1024,
+      filterFields: ["lifecycle", "section"],
+    }),
+
+  // Per-file manifest for incremental sync (skip-unchanged via fileHash,
+  // orphan-delete via lastRunId) plus a full-content cache that lets wiki_read
+  // serve a page from Convex when the filesystem isn't reachable (remote
+  // deploy). Vault content lives only in the user's private Convex deployment.
+  wikiFiles: defineTable({
+    sourcePath: v.string(),
+    fileHash: v.string(),
+    title: v.string(),
+    content: v.string(),
+    section: v.union(v.literal("wiki"), v.literal("raw")),
+    chunkCount: v.number(),
+    lastRunId: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_source", ["sourcePath"])
+    .index("by_run", ["lastRunId"]),
+
   executionAgents: defineTable({
     agentId: v.string(),
     conversationId: v.optional(v.string()),

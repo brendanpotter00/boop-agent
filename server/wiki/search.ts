@@ -1,5 +1,8 @@
 import { readFile, stat } from "node:fs/promises";
-import { basename } from "node:path";
+import { basename, join } from "node:path";
+import { api } from "../../convex/_generated/api.js";
+import { convex } from "../convex-client.js";
+import { embed } from "../embeddings.js";
 import {
   dedupKey,
   enumerateMarkdown,
@@ -180,16 +183,60 @@ export interface SemHit {
   snippet: string;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export async function semanticPass(
-  _query: string,
-  _section?: "wiki" | "raw",
-  _limit?: number,
+  query: string,
+  section?: "wiki" | "raw",
+  limit?: number,
 ): Promise<Map<string, SemHit>> {
-  // Phase 2 wires this to `embed()` + `convex.action(api.wikiChunks.vectorSearch)`,
-  // collapsing chunk hits to one entry per page (max chunk score). Until then,
-  // returning empty makes `fuse()` degrade cleanly to lexical-only.
-  return new Map();
+  const out = new Map<string, SemHit>();
+  if (!wikiConfigured()) return out;
+  // Embed the query; null means no provider succeeded -> degrade to lexical.
+  let vec: number[] | null = null;
+  try {
+    vec = await embed(query);
+  } catch {
+    return out;
+  }
+  if (!vec) return out;
+
+  // Query the derived Convex index. Any failure (table not yet deployed, no
+  // sync run, Convex unreachable) degrades silently to lexical-only — the
+  // caller still returns ONE list.
+  let hits: Array<{ score: number; record: any }> = [];
+  try {
+    hits = await convex.action(api.wikiChunks.vectorSearch, {
+      embedding: vec,
+      limit: limit ?? 30,
+      section,
+    });
+  } catch {
+    return out;
+  }
+
+  // Collapse chunk hits to one entry per page (best chunk wins).
+  const root = (() => {
+    try {
+      return vaultRoot();
+    } catch {
+      return "";
+    }
+  })();
+  for (const h of hits) {
+    const rec = h.record;
+    if (!rec?.path) continue;
+    const key = root ? dedupKey(join(root, rec.path)) : rec.path.toLowerCase();
+    const existing = out.get(key);
+    if (!existing || h.score > existing.semScore) {
+      out.set(key, {
+        rel: rec.path,
+        section: rec.section,
+        title: rec.title ?? rec.path,
+        semScore: h.score,
+        snippet: (rec.heading ? `${rec.heading}: ` : "") + String(rec.content ?? "").slice(0, 200),
+      });
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -299,6 +346,20 @@ export async function wikiRead(opts: { path: string }): Promise<string> {
   try {
     text = await readFile(abs, "utf8");
   } catch {
+    // Filesystem unreachable (e.g. remote deploy) — fall back to the page
+    // content cached in Convex by the sync pipeline.
+    try {
+      const cached = await convex.query(api.wikiChunks.getFileContent, { sourcePath: rel });
+      if (cached?.content) {
+        let body = cached.content;
+        if (Buffer.byteLength(body, "utf8") > READ_CAP_BYTES) {
+          body = body.slice(0, READ_CAP_BYTES) + "\n\n…[truncated — page longer than 24KB]";
+        }
+        return `# ${rel}\n\n${body}`;
+      }
+    } catch {
+      /* Convex also unavailable — fall through to not-found */
+    }
     return `Page not found: ${rel}. Use wiki_search or wiki_index to find the right path.`;
   }
   if (Buffer.byteLength(text, "utf8") > READ_CAP_BYTES) {

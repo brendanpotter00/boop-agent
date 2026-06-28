@@ -130,3 +130,74 @@ export async function embed(text: string): Promise<number[] | null> {
     return null;
   }
 }
+
+// Provider batch size. Voyage caps at 128 inputs/request; OpenAI is higher but
+// 128 keeps payloads modest and works for both.
+const BATCH = 128;
+
+async function embedBatchVoyage(texts: string[]): Promise<number[][]> {
+  const res = await fetch("https://api.voyageai.com/v1/embeddings", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.VOYAGE_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: VOYAGE_MODEL,
+      input: texts,
+      output_dimension: DIMENSIONS,
+    }),
+  });
+  if (!res.ok) throw new Error(`voyage ${res.status}: ${await res.text()}`);
+  const json = (await res.json()) as { data: { embedding: number[] }[] };
+  return json.data.map((d) => d.embedding);
+}
+
+async function embedBatchOpenAI(texts: string[]): Promise<number[][]> {
+  const res = await fetch("https://api.openai.com/v1/embeddings", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: OPENAI_MODEL,
+      input: texts,
+      dimensions: DIMENSIONS,
+    }),
+  });
+  if (!res.ok) throw new Error(`openai embeddings ${res.status}: ${await res.text()}`);
+  const json = (await res.json()) as { data: { embedding: number[] }[] };
+  return json.data.map((d) => d.embedding);
+}
+
+/**
+ * Embed many texts. Uses provider batch endpoints when a key is set (Voyage →
+ * OpenAI), otherwise falls back to sequential local embeds. Returns one vector
+ * per input, aligned by index; a failed item is `null` (the caller can retry
+ * later via the re-embed loop). Used by the wiki sync pipeline.
+ */
+export async function embedBatch(texts: string[]): Promise<(number[] | null)[]> {
+  if (texts.length === 0) return [];
+  const useProvider = !!(process.env.VOYAGE_API_KEY || process.env.OPENAI_API_KEY);
+  if (useProvider) {
+    const out: (number[] | null)[] = [];
+    for (let i = 0; i < texts.length; i += BATCH) {
+      const slice = texts.slice(i, i + BATCH);
+      try {
+        const vecs = process.env.VOYAGE_API_KEY
+          ? await embedBatchVoyage(slice)
+          : await embedBatchOpenAI(slice);
+        for (const v of vecs) out.push(v.length === DIMENSIONS ? v : null);
+      } catch (err) {
+        console.warn("[embeddings] batch slice failed, per-item fallback:", err);
+        for (const t of slice) out.push(await embed(t));
+      }
+    }
+    return out;
+  }
+  // Local model: no batch endpoint, embed sequentially (still cached in-process).
+  const out: (number[] | null)[] = [];
+  for (const t of texts) out.push(await embed(t));
+  return out;
+}
