@@ -2,6 +2,7 @@ import { z } from "zod";
 import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
 import { createMemoryTools } from "./memory/tools.js";
+import { createWikiTools } from "./wiki/tools.js";
 import { extractAndStore } from "./memory/extract.js";
 import { spawnExecutionAgent } from "./execution-agent.js";
 import { listEnabledIntegrations } from "./integrations/registry.js";
@@ -37,6 +38,7 @@ Tone: Warm, witty, concise. Write like you're texting a friend. No corporate voi
 
 Your only tools:
 - recall / write_memory (durable memory for this user)
+- wiki_search / wiki_read / wiki_index (the user's OWN personal knowledge vault — interview prep, people, companies, current work, projects, personal notes)
 - spawn_agent (dispatches a sub-agent that CAN touch the world)
 - create_automation / list_automations / toggle_automation / delete_automation
 - list_drafts / send_draft / reject_draft
@@ -57,6 +59,11 @@ Never tell the user you cannot help because you lack browser, web, file, or
 API access. That lack of access is the signal to call send_ack, then
 spawn_agent. Refusing or suggesting the user use another tool is a failure
 unless the spawned agent already tried and could not complete the task.
+
+Exception — the user's OWN personal wiki: this is local, read-only knowledge
+(not the outside world), so answer from it INLINE with wiki_search/wiki_read,
+exactly like recall — do NOT spawn_agent for it. See "Personal knowledge
+vault" below.
 
 Acknowledgment rule (iMessage UX):
 BEFORE every spawn_agent call, you MUST call send_ack first with a short
@@ -87,6 +94,20 @@ specific, STOP and call recall() first.
 
 Recall is cheap. Overuse is correct. Underuse is a bug. Multiple recalls
 per turn are fine and encouraged — different segments, different angles.
+
+Personal knowledge vault — wiki_search / wiki_read / wiki_index:
+The user keeps a curated personal wiki (interview prep, people, companies,
+current work, projects, personal notes). This is LOCAL, read-only
+knowledge — treat it like recall, NOT like the outside world: answer from it
+directly, WITHOUT spawn_agent. Flow: recall() first; then if the question
+touches the user's own documented knowledge, call wiki_search (it returns ONE
+ranked list of pages), then wiki_read the top hit(s). Use wiki_index to browse
+what exists. Prefer curated wiki/ pages over raw/ transcripts; cite pages as
+[[slug]]. The vault is the source of truth and you must NEVER write to it — if
+you learn a new durable fact during a wiki conversation, write_memory it (the
+inbox) so it can later be promoted into the wiki. For heavy multi-page
+synthesis ("summarize all my interview prep"), you may still spawn_agent with
+the wiki integration.
 
 write_memory() — call aggressively for durable facts. Err on the side of
 saving. If the user reveals anything personal, factual, or preferential,
@@ -450,6 +471,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
 
   const tools = [
     ...createMemoryTools(opts.conversationId),
+    ...createWikiTools(),
     ...createAutomationTools(opts.conversationId),
     ...createDraftDecisionTools(opts.conversationId, runtimeConfig),
     ...createSelfTools(),
@@ -534,6 +556,9 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
           : [
               "mcp__boop-memory__write_memory",
               "mcp__boop-memory__recall",
+              "mcp__wiki__wiki_search",
+              "mcp__wiki__wiki_read",
+              "mcp__wiki__wiki_index",
               "mcp__boop-spawn__spawn_agent",
               "mcp__boop-automations__create_automation",
               "mcp__boop-automations__list_automations",
@@ -569,7 +594,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
       ],
       onText: (chunk) => opts.onThinking?.(chunk),
       onToolUse: (toolName, input) => {
-        const name = toolName.replace(/^mcp__boop-[a-z-]+__/, "");
+        const name = toolName.replace(/^mcp__[a-z-]+__/, "");
         const inputPreview = JSON.stringify(input);
         log(
           `tool: ${name}(${inputPreview.length > 90 ? inputPreview.slice(0, 90) + "…" : inputPreview})`,
