@@ -19,6 +19,21 @@ const DIMENSIONS = 1024;
 let extractor: FeatureExtractionPipeline | null = null;
 let loading: Promise<FeatureExtractionPipeline> | null = null;
 
+// The transformers.js pipeline is NOT safe for concurrent inference: a wiki
+// search (embed of the query) running at the same time as the sync backfill
+// (embedBatch) would otherwise both call `ext(...)` on the same pipeline and
+// can throw, aborting the sync. Serialize all local inference through one
+// promise chain. (Provider/API embeds don't go through here.)
+let localChain: Promise<unknown> = Promise.resolve();
+function runLocalSerialized<T>(fn: () => Promise<T>): Promise<T> {
+  const result = localChain.then(fn, fn);
+  localChain = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
 export type EmbeddingProvider = "voyage" | "openai" | "local";
 
 export function activeProvider(): EmbeddingProvider {
@@ -97,17 +112,20 @@ async function getLocalExtractor(): Promise<FeatureExtractionPipeline> {
 
 async function embedLocal(text: string): Promise<number[]> {
   const ext = await getLocalExtractor();
-  const out = await ext(text, { pooling: "mean", normalize: true });
-  // Tensor → number[]. BGE-large outputs 1024 floats; verify shape so a
-  // future model swap doesn't silently produce mis-sized vectors that the
-  // Convex vector index would reject.
-  const arr = Array.from(out.data as ArrayLike<number>);
-  if (arr.length !== DIMENSIONS) {
-    throw new Error(
-      `local embedding returned ${arr.length} dims, expected ${DIMENSIONS}`,
-    );
-  }
-  return arr;
+  // Serialize inference: the pipeline is not concurrency-safe.
+  return runLocalSerialized(async () => {
+    const out = await ext(text, { pooling: "mean", normalize: true });
+    // Tensor → number[]. BGE-large outputs 1024 floats; verify shape so a
+    // future model swap doesn't silently produce mis-sized vectors that the
+    // Convex vector index would reject.
+    const arr = Array.from(out.data as ArrayLike<number>);
+    if (arr.length !== DIMENSIONS) {
+      throw new Error(
+        `local embedding returned ${arr.length} dims, expected ${DIMENSIONS}`,
+      );
+    }
+    return arr;
+  });
 }
 
 // Preload the local model in the background so the first user-facing
