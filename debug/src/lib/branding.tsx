@@ -99,6 +99,12 @@ const TOOL_BRANDS: ToolBrand[] = [
     logoUrl: "/integration-icons/apple-reminders.png",
     fullBleedLogo: true,
   },
+  {
+    key: "voice-memos",
+    displayName: "Voice Memos",
+    domain: "apple.com",
+    aliases: ["voice-memos", "voicememos", "voice memo", "memo"],
+  },
 ];
 
 function normalize(value: string): string {

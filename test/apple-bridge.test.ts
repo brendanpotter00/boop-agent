@@ -19,6 +19,7 @@ const originalAppleEnabled = process.env.BOOP_APPLE_ENABLED;
 const originalAppleMessagesEnabled = process.env.BOOP_APPLE_MESSAGES_ENABLED;
 const originalAppleNotesEnabled = process.env.BOOP_APPLE_NOTES_ENABLED;
 const originalAppleRemindersEnabled = process.env.BOOP_APPLE_REMINDERS_ENABLED;
+const originalAppleVoiceMemosEnabled = process.env.BOOP_APPLE_VOICEMEMOS_ENABLED;
 
 const BRIDGE_INFO = {
   port: 4570,
@@ -50,6 +51,7 @@ describe("apple bridge client and tools", () => {
     process.env.BOOP_APPLE_MESSAGES_ENABLED = "true";
     delete process.env.BOOP_APPLE_NOTES_ENABLED;
     delete process.env.BOOP_APPLE_REMINDERS_ENABLED;
+    delete process.env.BOOP_APPLE_VOICEMEMOS_ENABLED;
     clearAppleSettingsCache();
   });
 
@@ -81,6 +83,11 @@ describe("apple bridge client and tools", () => {
       delete process.env.BOOP_APPLE_REMINDERS_ENABLED;
     } else {
       process.env.BOOP_APPLE_REMINDERS_ENABLED = originalAppleRemindersEnabled;
+    }
+    if (originalAppleVoiceMemosEnabled === undefined) {
+      delete process.env.BOOP_APPLE_VOICEMEMOS_ENABLED;
+    } else {
+      process.env.BOOP_APPLE_VOICEMEMOS_ENABLED = originalAppleVoiceMemosEnabled;
     }
   });
 
@@ -222,6 +229,7 @@ describe("apple bridge client and tools", () => {
     delete process.env.BOOP_APPLE_MESSAGES_ENABLED;
     delete process.env.BOOP_APPLE_NOTES_ENABLED;
     delete process.env.BOOP_APPLE_REMINDERS_ENABLED;
+    delete process.env.BOOP_APPLE_VOICEMEMOS_ENABLED;
     clearAppleSettingsCache();
 
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -231,6 +239,7 @@ describe("apple bridge client and tools", () => {
         messagesEnabled: false,
         notesEnabled: false,
         remindersEnabled: false,
+        voiceMemosEnabled: false,
       });
     } finally {
       warnSpy.mockRestore();

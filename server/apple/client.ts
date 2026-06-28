@@ -8,6 +8,7 @@ import {
 } from "./messages-local.js";
 import { getCachedLocalNotesAccess, requestLocalNotesAccess } from "./notes-local.js";
 import { getCachedLocalRemindersAccess, requestLocalRemindersAccess } from "./reminders-local.js";
+import { probeLocalVoiceMemosAccess } from "./voicememos-local.js";
 
 const REQUEST_TIMEOUT_MS = 10_000;
 
@@ -154,10 +155,11 @@ async function localServerStatus(options: AppleBridgeStatusOptions = {}): Promis
       error: LOCAL_MESSAGES_UNSUPPORTED_MESSAGE,
     };
   }
-  const [messages, notes, reminders] = await Promise.all([
+  const [messages, notes, reminders, voicememos] = await Promise.all([
     probeLocalMessagesAccess(),
     localNotesPermission(Boolean(options.probeNotes)),
     localRemindersPermission(Boolean(options.probeReminders)),
+    probeLocalVoiceMemosAccess(),
   ]);
   return {
     running: true,
@@ -169,6 +171,7 @@ async function localServerStatus(options: AppleBridgeStatusOptions = {}): Promis
       calendars: "notDetermined",
       reminders,
       notes,
+      voicememos,
     },
     error: messages === "granted" ? null : LOCAL_MESSAGES_FULL_DISK_ACCESS_MESSAGE,
   };

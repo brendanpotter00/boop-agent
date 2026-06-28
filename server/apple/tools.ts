@@ -1,18 +1,27 @@
 import { z } from "zod";
+import { api } from "../../convex/_generated/api.js";
+import { convex } from "../convex-client.js";
 import { createClaudeMcpServer } from "../runtimes/claude.js";
 import { defineRuntimeTool } from "../runtimes/tool.js";
 import { runtimeText, type RuntimeTool } from "../runtimes/types.js";
 import { redactContactHandle, redactPhoneNumbers } from "../privacy.js";
 import { getAppleSettings } from "../runtime-config.js";
+import { transcribeAudioFile, WHISPER_MODEL } from "../transcription.js";
 import { appleBridgeRequest, readBridgeInfo } from "./client.js";
 import { listLocalChats, readLocalMessages } from "./messages-local.js";
 import { readLocalNote, searchLocalNotes } from "./notes-local.js";
 import { listLocalReminders } from "./reminders-local.js";
+import {
+  audioFileMtime,
+  listLocalVoiceMemos,
+  readLocalVoiceMemo,
+  type LocalVoiceMemo,
+} from "./voicememos-local.js";
 
 const NAMESPACE = "apple";
 
 const LOCAL_NOTE =
-  "Read-only data that lives on the user's Mac. iMessage reads run from the local Mac server with Full Disk Access; Apple Notes and Reminders reads run from the local Mac server with Automation permission; Calendar uses the optional Apple bridge.";
+  "Read-only data that lives on the user's Mac. iMessage reads run from the local Mac server with Full Disk Access; Apple Notes and Reminders reads run from the local Mac server with Automation permission; Voice Memos reads (with on-device transcription) run from the local Mac server with Full Disk Access; Calendar uses the optional Apple bridge.";
 
 const MESSAGE_TEXT_LIMIT = 500;
 
@@ -134,6 +143,24 @@ function formatNoteSummary(note: BridgeNoteSummary): string {
   return `${name} (${note.id}) — folder ${folder}${modified}\n  ${snippet}`;
 }
 
+function formatDuration(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  const hrs = Math.floor(total / 3600);
+  const mins = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  if (hrs > 0) return `${hrs}h ${mins}m`;
+  if (mins > 0) return `${mins}m ${secs}s`;
+  return `${secs}s`;
+}
+
+function formatVoiceMemo(memo: LocalVoiceMemo): string {
+  const title = redactPhoneNumbers(memo.title);
+  const created = memo.createdAt ? ` — recorded ${memo.createdAt}` : "";
+  const folder = memo.folder ? ` — folder ${redactPhoneNumbers(memo.folder)}` : "";
+  const audio = memo.hasAudio ? "" : " — (audio not downloaded from iCloud)";
+  return `${title} (${memo.id}) — ${formatDuration(memo.durationSeconds)}${created}${folder}${audio}`;
+}
+
 async function messagesEnabled(): Promise<boolean> {
   return (await getAppleSettings()).messagesEnabled;
 }
@@ -144,6 +171,44 @@ async function notesEnabled(): Promise<boolean> {
 
 async function remindersEnabled(): Promise<boolean> {
   return (await getAppleSettings()).remindersEnabled;
+}
+
+async function voiceMemosEnabled(): Promise<boolean> {
+  return (await getAppleSettings()).voiceMemosEnabled;
+}
+
+// Transcription is expensive (Whisper runs on CPU), so cache by recording id +
+// audio mtime + model. Returns the transcript text, or null if the audio is not
+// available locally (iCloud-evicted).
+async function transcribeVoiceMemo(memo: LocalVoiceMemo): Promise<string | null> {
+  if (!memo.hasAudio || !memo.audioPath) return null;
+  const mtime = audioFileMtime(memo.audioPath);
+
+  try {
+    const cached = await convex.query(api.voiceMemoTranscripts.get, {
+      recordingId: memo.id,
+    });
+    if (cached && cached.audioMtime === mtime && cached.model === WHISPER_MODEL) {
+      return cached.text;
+    }
+  } catch (err) {
+    console.warn("[apple] voice memo transcript cache read failed", err);
+  }
+
+  const text = await transcribeAudioFile(memo.audioPath);
+
+  try {
+    await convex.mutation(api.voiceMemoTranscripts.set, {
+      recordingId: memo.id,
+      audioMtime: mtime,
+      text,
+      model: WHISPER_MODEL,
+    });
+  } catch (err) {
+    console.warn("[apple] voice memo transcript cache write failed", err);
+  }
+
+  return text;
 }
 
 async function bridgeAvailable(): Promise<boolean> {
@@ -402,6 +467,55 @@ export function createAppleTools(namespace = NAMESPACE): RuntimeTool[] {
           }
           const note = await getNote(note_id);
           return `${redactPhoneNumbers(note.name)} (folder ${redactPhoneNumbers(note.folder)})\n\n${redactPhoneNumbers(note.body)}`;
+        }),
+    ),
+    defineRuntimeTool(
+      namespace,
+      "apple_list_voicememos",
+      `List the user's Voice Memos recordings (newest first) with their ids, titles, durations, and dates. Use apple_read_voicememo to transcribe one. ${LOCAL_NOTE}`,
+      {
+        query: z.string().optional().describe("Filter to recordings whose title contains this text."),
+        since_days: z.number().optional().describe("Only recordings from the last N days."),
+        folder: z.string().optional().describe("Filter by Voice Memos folder name."),
+        limit: z.number().optional().describe("Max recordings to return (default 20, max 200)."),
+      },
+      async ({ query, since_days, folder, limit }) =>
+        wrap(async () => {
+          if (!(await voiceMemosEnabled())) {
+            return "Voice Memos reads are disabled in Boop Connections. Turn on Voice Memos under Local Mac to use this tool.";
+          }
+          const memos = await listLocalVoiceMemos({
+            query,
+            sinceDays: since_days,
+            folder,
+            limit,
+          });
+          if (memos.length === 0) return "No voice memos found.";
+          return memos.map(formatVoiceMemo).join("\n");
+        }),
+    ),
+    defineRuntimeTool(
+      namespace,
+      "apple_read_voicememo",
+      `Read one Voice Memo by id (from apple_list_voicememos), including an on-device transcription of the spoken audio. First transcription of a recording can take a while; results are cached. ${LOCAL_NOTE}`,
+      {
+        id: z.string().describe("Voice Memo id returned by apple_list_voicememos."),
+      },
+      async ({ id }) =>
+        wrap(async () => {
+          if (!(await voiceMemosEnabled())) {
+            return "Voice Memos reads are disabled in Boop Connections. Turn on Voice Memos under Local Mac to use this tool.";
+          }
+          const memo = await readLocalVoiceMemo(id);
+          const header = formatVoiceMemo(memo);
+          if (!memo.hasAudio) {
+            return `${header}\n\nTranscript: (audio not downloaded from iCloud / not available locally)`;
+          }
+          const transcript = await transcribeVoiceMemo(memo);
+          const body = transcript?.trim()
+            ? redactPhoneNumbers(transcript.trim())
+            : "(no speech detected)";
+          return `${header}\n\nTranscript:\n${body}`;
         }),
     ),
   ];

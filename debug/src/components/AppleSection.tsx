@@ -10,6 +10,7 @@ interface ApplePermissions {
   calendars: PermissionState;
   reminders: PermissionState;
   notes: PermissionState;
+  voicememos: PermissionState;
 }
 
 interface AppleBridgeStatus {
@@ -26,6 +27,7 @@ interface AppleStatus {
   messagesEnabled: boolean;
   notesEnabled: boolean;
   remindersEnabled: boolean;
+  voiceMemosEnabled: boolean;
   bridge: AppleBridgeStatus;
 }
 
@@ -36,6 +38,7 @@ const PERMISSION_CHIPS: { key: keyof ApplePermissions; label: string }[] = [
   { key: "calendars", label: "Calendar" },
   { key: "reminders", label: "Reminders" },
   { key: "notes", label: "Notes" },
+  { key: "voicememos", label: "Voice Memos" },
 ];
 
 export function AppleSection({ isDark }: { isDark: boolean }) {
@@ -183,8 +186,8 @@ export function AppleSection({ isDark }: { isDark: boolean }) {
           <div className="min-w-0">
             <div className={`text-sm font-medium ${label}`}>Apple data (local Mac)</div>
             <div className={`text-xs mt-1 leading-relaxed max-w-3xl ${muted}`}>
-              iMessage uses Full Disk Access. Notes and Reminders use macOS Automation permission.
-              Calendar uses the optional Apple bridge.
+              iMessage and Voice Memos use Full Disk Access. Notes and Reminders use macOS
+              Automation permission. Calendar uses the optional Apple bridge.
             </div>
             <div className={`text-[10px] mono mt-2 ${subtle}`}>
               {loaded ? `${ENABLED_KEY} = "${enabled ? "true" : "false"}"` : `${ENABLED_KEY} = ...`}
@@ -351,6 +354,7 @@ function localServerLabel(permissions: ApplePermissions | null): string {
     permissions?.messages === "granted" ? "iMessage" : null,
     permissions?.notes === "granted" ? "Notes" : null,
     permissions?.reminders === "granted" ? "Reminders" : null,
+    permissions?.voicememos === "granted" ? "Voice Memos" : null,
   ].filter(Boolean);
   if (readable.length === 0) return "Local server connected";
   return `Local server connected (${readable.join(" + ")} live)`;
