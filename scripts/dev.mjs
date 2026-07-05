@@ -48,15 +48,25 @@ const cloudflareTunnel = envVars.CLOUDFLARE_TUNNEL || "";
 let convexEnvFile = null;
 
 function writeConvexDevEnvFile() {
-  const convexUrl = envVars.VITE_CONVEX_URL || envVars.CONVEX_URL;
   const lines = [];
-  if (envVars.CONVEX_DEPLOYMENT) {
-    lines.push(`CONVEX_DEPLOYMENT=${envVars.CONVEX_DEPLOYMENT}`);
-  }
-  if (convexUrl) {
-    // Convex CLI warns when both CONVEX_URL and VITE_CONVEX_URL are active.
-    // The debug UI is Vite-based, and the server falls back to this value.
-    lines.push(`VITE_CONVEX_URL=${convexUrl}`);
+  if (envVars.CONVEX_SELF_HOSTED_URL) {
+    // Self-hosted backend: point the CLI at the local deployment. Don't emit
+    // CONVEX_DEPLOYMENT / VITE_CONVEX_URL alongside it — the CLI refuses to
+    // mix cloud + self-hosted config.
+    lines.push(`CONVEX_SELF_HOSTED_URL=${envVars.CONVEX_SELF_HOSTED_URL}`);
+    if (envVars.CONVEX_SELF_HOSTED_ADMIN_KEY) {
+      lines.push(`CONVEX_SELF_HOSTED_ADMIN_KEY=${envVars.CONVEX_SELF_HOSTED_ADMIN_KEY}`);
+    }
+  } else {
+    const convexUrl = envVars.VITE_CONVEX_URL || envVars.CONVEX_URL;
+    if (envVars.CONVEX_DEPLOYMENT) {
+      lines.push(`CONVEX_DEPLOYMENT=${envVars.CONVEX_DEPLOYMENT}`);
+    }
+    if (convexUrl) {
+      // Convex CLI warns when both CONVEX_URL and VITE_CONVEX_URL are active.
+      // The debug UI is Vite-based, and the server falls back to this value.
+      lines.push(`VITE_CONVEX_URL=${convexUrl}`);
+    }
   }
   if (!lines.length) return null;
   const path = resolve(tmpdir(), `boop-convex-${process.pid}.env.local`);
@@ -239,22 +249,29 @@ const serverChild = run(
   ["tsx", "watch", "server/index.ts"],
   /listening on :/,
 );
-convexEnvFile = writeConvexDevEnvFile();
-const convexArgs = ["convex", "dev"];
-if (convexEnvFile) convexArgs.push("--env-file", convexEnvFile);
-const convexChild = run(
-  "convex",
-  "npx",
-  convexArgs,
-  /Convex functions ready/,
-);
+// start-local.mjs deploys functions itself and sets SKIP_CONVEX_DEV=1, so the
+// `convex dev` watcher is redundant there. Skipping it also avoids gating the
+// ready banner on the watcher's "Convex functions ready" log line.
+const skipConvexDev = process.env.SKIP_CONVEX_DEV === "1";
+let convexChild = null;
+if (skipConvexDev) {
+  console.log(
+    `${C.convex}convex${C.reset} │ skipping \`convex dev\` watcher (SKIP_CONVEX_DEV=1) — functions already deployed.`,
+  );
+} else {
+  convexEnvFile = writeConvexDevEnvFile();
+  const convexArgs = ["convex", "dev"];
+  if (convexEnvFile) convexArgs.push("--env-file", convexEnvFile);
+  convexChild = run("convex", "npx", convexArgs, /Convex functions ready/);
+}
 const debugChild = run(
   "debug",
   "npx",
   ["vite", "--config", "debug/vite.config.ts"],
   /Local:\s+http/,
 );
-const children = [serverChild, convexChild, debugChild];
+const children = [serverChild, debugChild];
+if (convexChild) children.push(convexChild);
 
 let ngrokUrlReady = Promise.resolve(null);
 if (useNgrok && ngrokInstalled) {
@@ -329,7 +346,7 @@ async function autoRegisterComposioWebhook(publicUrl) {
 
 Promise.all([
   serverChild.ready,
-  convexChild.ready,
+  convexChild ? convexChild.ready : Promise.resolve(),
   debugChild.ready,
   ngrokUrlReady,
 ])

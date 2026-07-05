@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd agent template — starts boop-agent automatically at login so the
+  personal agent survives reboots with no manual step. `start:local` ensures
+  Docker + the Convex backend are up before starting the app, so this is safe
+  to run at login even before Docker Desktop has finished launching.
+
+  This is a TEMPLATE. __REPO_DIR__ is a placeholder — the install step below
+  substitutes the real absolute path and writes the result to
+  ~/Library/LaunchAgents/ (which is NOT in the repo, so no personal paths are
+  committed).
+
+  Install:
+    mkdir -p __REPO_DIR__/.local-logs
+    sed "s|__REPO_DIR__|$(pwd)|g" scripts/com.boop-agent.local.plist \
+      > ~/Library/LaunchAgents/com.boop-agent.local.plist
+    launchctl load ~/Library/LaunchAgents/com.boop-agent.local.plist
+
+  Manage:
+    launchctl unload ~/Library/LaunchAgents/com.boop-agent.local.plist   # stop autostart
+    launchctl list | grep boop-agent                                     # is it loaded?
+    tail -f __REPO_DIR__/.local-logs/boop.err.log                        # watch logs
+
+  A login shell (`zsh -lc`) is used so PATH picks up node/npm/npx, docker, and
+  cloudflared from your normal profile.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.boop-agent.local</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>cd __REPO_DIR__ &amp;&amp; exec npm run start:local</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__REPO_DIR__</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+
+  <key>StandardOutPath</key>
+  <string>__REPO_DIR__/.local-logs/boop.out.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>__REPO_DIR__/.local-logs/boop.err.log</string>
+
+  <key>ProcessType</key>
+  <string>Interactive</string>
+</dict>
+</plist>

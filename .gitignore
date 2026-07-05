@@ -18,3 +18,10 @@ data/
 debug/dist/
 .cache/
 .tsbuildinfo
+
+# Self-hosted Convex migration snapshots — contain ALL your data (messages,
+# memories, wiki). Never commit.
+convex-cloud-snapshot.zip
+*-snapshot.zip
+# launchd stdout/stderr logs for `npm run start:local`
+.local-logs/

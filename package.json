@@ -12,6 +12,7 @@
     "sendblue:webhook": "node scripts/sendblue-webhook.mjs",
     "preflight": "node scripts/preflight.mjs",
     "dev": "node scripts/dev.mjs",
+    "start:local": "node scripts/start-local.mjs",
     "dev:parallel": "npm-run-all --parallel dev:server dev:convex dev:debug",
     "dev:server": "npm run preflight && tsx watch server/index.ts",
     "dev:convex": "convex dev",
