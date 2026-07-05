@@ -43,7 +43,7 @@ Built on:
 ## What you get
 
 - **iMessage in / iMessage out** via Sendblue (with typing indicators and webhook dedup).
-- **Sendblue CLI integration** — `npm run dev` auto-registers the inbound webhook for you every restart (no re-pasting into the dashboard when free ngrok rotates your URL).
+- **Sendblue CLI integration** — register your tunnel URL as the inbound webhook in one command (`npm run sendblue:webhook -- <url>`); no clicking around the dashboard when your tunnel URL rotates.
 - **Dispatcher + workers** pattern: a lean interaction agent decides what to do, spawns focused sub-agents that actually do the work.
 - **Pure dispatcher** — the interaction agent has only memory + spawn + automation + draft tools. Web access, files, and integrations are explicitly denied to it; sub-agents get `WebSearch` / `WebFetch` / the integrations.
 - **Tiered memory** (short / long / permanent) with post-turn extraction, decay, and cleaning.
@@ -127,7 +127,7 @@ You need accounts for these. Keep the tabs open — setup will ask for credentia
 | [Sendblue](https://sendblue.com/?utm_source=raroque) | iMessage bridge. Get a number, grab API keys. | Free on their agent plan | `RAROQUE20` — 20% off for 6 months (helpful if you plan to commercialize) |
 | [Convex](https://convex.link/chrisraroque) | Database + realtime. | Free tier is plenty | Working on getting one (in touch with them 👀) |
 | [Composio](https://composio.dev/?utm_source=chris&utm_medium=youtube&utm_campaign=collab) | Integrations — one API key unlocks ~1000 toolkits. Optional if you just want chat + memory + automations without third-party access. | Free tier covers personal use | `CHRISXCOMPOSIO` — 1 month free on starter plan |
-| [ngrok](https://ngrok.com?ref=chrisraroque) or similar | Expose your local port so Sendblue can reach it. | Free tier works | Working on getting one (if you work here, please reach out!) |
+| [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) (Cloudflare Tunnel) | Expose your local port so Sendblue can reach it. Any HTTPS tunnel (ngrok, Tailscale Funnel, …) works too. | Free — quick tunnels need no account | — |
 
 **Custom integrations welcome.** Composio covers the common catalog, but you're free to add your own MCP servers under `server/integrations/` and register them in `server/integrations/registry.ts` — the dispatcher treats them the same as Composio-backed ones (just named toolkits the execution agent can spawn against). Useful for in-house APIs, local tools, or anything Composio doesn't ship.
 
@@ -153,34 +153,38 @@ codex login
 # 3. Interactive setup — writes .env.local, creates Convex deployment, offers optional local browser use
 npm run setup
 
-# 4. Install ngrok (one-time) and authorize it
-brew install ngrok
-# or grab from https://ngrok.com/download
-ngrok config add-authtoken <your-token>   # free at https://dashboard.ngrok.com
+# 4. Install cloudflared (one-time) — no account needed for quick tunnels
+brew install cloudflared
+# or grab a build from https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
 
-# 5. Start everything with one command — server, Convex, debug UI, and ngrok
+# 5. Start everything with one command — server, Convex, and the debug UI
 npm run dev
+
+# 6. In a second terminal, open a Cloudflare quick tunnel so Sendblue can reach you
+cloudflared tunnel --url http://localhost:3456
 ```
 
-`npm run dev` prints color-prefixed output from all four processes and shows a banner with your ngrok webhook URL once the tunnel is live.
+`npm run dev` prints color-prefixed output from all of its processes and shows a banner once everything is ready. `cloudflared` prints a random public URL for your tunnel:
 
 ```
-Public URL:        https://<abc123>.ngrok.app
-Sendblue webhook:  https://<abc123>.ngrok.app/sendblue/webhook
+https://<your-tunnel>.trycloudflare.com
 ```
 
-On free ngrok, **the webhook auto-registers with Sendblue every boot** — no manual paste needed. For stable URLs (ngrok reserved or Cloudflare Tunnel), set the webhook once in the dashboard.
+Register it as your Sendblue inbound webhook in one command:
+
+```bash
+npm run sendblue:webhook -- https://<your-tunnel>.trycloudflare.com/sendblue/webhook
+```
+
+(Or paste that URL into the Sendblue dashboard → API Settings → Webhook Configuration as an INBOUND MESSAGE webhook.)
 
 Text your Sendblue-provisioned number from a **different** phone. The agent replies.
 
-> **⚠ ngrok free plan gives you a new URL every time.** That means every time you restart `npm run dev`, your Sendblue webhook URL is dead until you paste the new one in.
+> **⚠ Quick tunnels give you a new URL every time.** Every time you restart `cloudflared`, you get a fresh `*.trycloudflare.com` URL — re-run the `npm run sendblue:webhook` command with the new one.
 >
-> If you're going to run this for more than a quick demo, **strongly recommend one of:**
-> - **ngrok paid plan** — gives you a reserved domain that stays the same forever
-> - **[Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)** — free, stable subdomain, a bit more setup
-> - Any other tunnel with a static URL (Tailscale Funnel, localtunnel reserved, etc.)
+> If you're going to run this for more than a quick demo, use a **named Cloudflare Tunnel** — a free Cloudflare account plus your own domain gets you a stable URL that survives restarts. Set `CLOUDFLARE_TUNNEL=<tunnel-name>` and `PUBLIC_URL=https://boop.yourdomain.com` in `.env.local` and `npm run dev` starts the tunnel for you; configure the webhook once and forget it.
 >
-> If you use a non-ngrok tunnel, point it at `localhost:3456` yourself — `npm run dev` will still run the rest, just ignore its ngrok output and use your tunnel's URL.
+> Any other HTTPS tunnel also works (ngrok, Tailscale Funnel, localtunnel, etc.) — point it at `localhost:3456` and use its URL. If ngrok is installed and no static `PUBLIC_URL` is set, `npm run dev` will even drive it and auto-register the webhook each boot.
 
 > **Gotcha:** `SENDBLUE_FROM_NUMBER` must be your Sendblue-provisioned number (the one people text TO), not your personal cell. Sendblue's API requires it, and misconfiguring it returns either "missing required parameter: from_number" or "Cannot send messages to self".
 >
@@ -196,48 +200,53 @@ Boop uses the [Sendblue CLI](https://github.com/sendblue-api/sendblue-cli) (`@se
 |---|---|
 | `npm run setup` | Interactive. Offers to run `sendblue login` / `sendblue setup` and pulls `api_key_id` + `api_secret_key` from `sendblue show-keys` into `.env.local`. |
 | `npm run sendblue:sync` | Runs `sendblue lines`, parses your provisioned phone number, and writes `SENDBLUE_FROM_NUMBER` to `.env.local` in E.164 format. Run this anytime your number changes or got set wrong. |
-| `npm run sendblue:webhook -- <url>` | Runs `sendblue webhooks list`, removes stale ngrok/tunnel hooks, and adds `<url>` as a `type=receive` inbound webhook. Called automatically by `npm run dev`. |
+| `npm run sendblue:webhook -- <url>` | Runs `sendblue webhooks list`, removes stale tunnel hooks (trycloudflare, ngrok, …), and adds `<url>` as a `type=receive` inbound webhook. Run it with your quick-tunnel URL after each restart; called automatically by `npm run dev` when it manages an ngrok tunnel. |
 
 ### The `npm run dev` lifecycle
 
 ```
  1. Preflight: confirm convex/_generated/ exists (else prompt to run setup).
- 2. Spawn four children in parallel, each with a prefixed log stream:
+ 2. Spawn the children in parallel, each with a prefixed log stream:
        server │   (tsx watch server/index.ts)
        convex │   (npx convex dev — pushes schema + functions)
        debug  │   (vite dev server on :5173)
+       tunnel │   (if CLOUDFLARE_TUNNEL is set) runs your named Cloudflare tunnel
        ngrok  │   (if installed AND no static URL) exposes :PORT
- 3. Wait for all four readiness signals:
+ 3. Wait for the readiness signals:
        server → "listening on :PORT"
        convex → "Convex functions ready"
        debug  → "Local:  http://localhost:5173/"
-       ngrok  → tunnel URL visible at http://127.0.0.1:4040
- 4. Auto-register the webhook (FREE ngrok only, not reserved domains):
+       ngrok  → tunnel URL visible at http://127.0.0.1:4040  (ngrok only)
+ 4. Auto-register the webhook (managed FREE ngrok only — for Cloudflare
+    quick tunnels, run `npm run sendblue:webhook -- <url>` yourself):
        webhook │ [webhook] removed stale https://old.ngrok-free.app/sendblue/webhook
        webhook │ [webhook] registered https://new.ngrok-free.app/sendblue/webhook (type=receive)
  5. Show the banner with dashboard + public URL + your Sendblue number.
 ```
 
-The banner will look like:
+With a static `PUBLIC_URL` (e.g. a named Cloudflare Tunnel), the banner will look like:
 
 ```
 ════════════════════════════════════════════════════════════════════
-  Boop is ready — ngrok tunnel is live  (webhook auto-registered).
+  Boop is ready — your STABLE public URL is live.
 
   🐶 Debug dashboard (click me):   http://localhost:5173
-  🌐 Public URL:                   https://abc123.ngrok-free.app
-  📮 Sendblue webhook (inbound):   https://abc123.ngrok-free.app/sendblue/webhook
+  🌐 Public URL:                   https://boop.yourdomain.com
+  📮 Sendblue webhook (inbound):   https://boop.yourdomain.com/sendblue/webhook
   📱 Text this Sendblue number:    <sendblue-number>  (from a DIFFERENT phone)
 ════════════════════════════════════════════════════════════════════
 ```
+
+With a Cloudflare quick tunnel, `npm run dev` doesn't manage (or see) the cloudflared process, so the banner only shows the dashboard URL — your public URL is the `*.trycloudflare.com` one printed in the cloudflared terminal.
 
 ### When auto-register fires vs when it doesn't
 
 | Setup | Auto-register fires? | Why |
 |---|---|---|
-| Free ngrok (default) | **Yes**, every boot | URL rotates; dashboard would be stale otherwise |
+| Cloudflare quick tunnel (recommended default) | No — run `npm run sendblue:webhook -- <url>` after each restart | `npm run dev` doesn't manage the cloudflared quick tunnel, so it can't see the rotating URL |
+| Named `CLOUDFLARE_TUNNEL` / static `PUBLIC_URL` | No | URL is stable; configure once in Sendblue dashboard |
+| Free ngrok (if installed, no static URL) | **Yes**, every boot | `npm run dev` manages ngrok and reads its URL; dashboard would be stale otherwise |
 | Reserved `NGROK_DOMAIN` | No | URL is stable; configure once in Sendblue dashboard |
-| Static `PUBLIC_URL` (Cloudflare Tunnel etc.) | No | Same reason |
 | `SENDBLUE_AUTO_WEBHOOK=false` | No | Manual opt-out |
 
 ### What you'll see in the server logs during a conversation
@@ -427,7 +436,7 @@ How it works:
 
 The browser uses a persistent Chrome/Chromium profile, so cookies and login state can carry across runs. Boop does not store third-party service passwords or OAuth tokens for this feature; those live in the local browser profile you choose. The `browser_fill` tool redacts typed values before agent tool-use logs are stored. Settings are stored in Convex under the `settings` table, with `.env.local` values used only as fallbacks.
 
-Browser control HTTP routes are local-only. Requests forwarded through a public tunnel are rejected, so your ngrok/Sendblue URL cannot launch, close, or install a local browser.
+Browser control HTTP routes are local-only. Requests forwarded through a public tunnel are rejected, so your tunnel/Sendblue URL cannot launch, close, or install a local browser.
 
 For Codex runtime, local browser tools are exposed internally under the `local_browser` namespace to avoid Codex's reserved browser namespace. The user-facing integration name remains `browser`.
 
@@ -606,7 +615,7 @@ boop-agent/
 ├── debug/                         # Dashboard: Dashboard / Agents / Automations / Memory / Events / Connections
 ├── scripts/
 │   ├── setup.ts                   # Interactive setup CLI
-│   ├── dev.mjs                    # One-command orchestrator (server + convex + vite + ngrok)
+│   ├── dev.mjs                    # One-command orchestrator (server + convex + vite + tunnel)
 │   ├── preflight.mjs              # Checks convex/_generated exists before booting
 │   ├── sendblue-sync.mjs          # Pulls phone number from `sendblue lines`
 │   └── sendblue-webhook.mjs       # Registers inbound webhook via Sendblue CLI

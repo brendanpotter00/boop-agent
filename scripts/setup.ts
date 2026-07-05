@@ -705,12 +705,16 @@ the browser integration unless you enable it.
   // ---- Tunnel configuration ------------------------------------------------
   banner("Tunnel — public URL for Sendblue to reach your server");
   console.log(`
-ngrok's FREE plan gives you a NEW public URL every restart, which means
-re-pasting into Sendblue every time. For a stable URL, pick one of:
+Recommended: Cloudflare Tunnel (cloudflared). A free QUICK tunnel needs no
+account — just run \`cloudflared tunnel --url http://localhost:<port>\` in a
+second terminal — but it prints a NEW random *.trycloudflare.com URL every
+run, so you re-register the Sendblue webhook each restart. A NAMED tunnel
+(free Cloudflare account + your own domain) gives a stable URL that survives
+restarts. Any other HTTPS tunnel (ngrok, Tailscale Funnel, …) works too.
 
-  1. Free ngrok             (fine for testing / demos — re-paste each restart)
-  2. ngrok RESERVED domain  (paid — stays the same across restarts)
-  3. Cloudflare Tunnel / other static tunnel you set up yourself
+  1. Cloudflare quick tunnel  (free — re-register the new URL each restart)
+  2. Named Cloudflare Tunnel  (or another stable URL you set up yourself)
+  3. ngrok reserved domain    (paid — stays the same across restarts)
 `);
 
   const { tunnelChoice } = await prompts(
@@ -719,9 +723,9 @@ re-pasting into Sendblue every time. For a stable URL, pick one of:
       name: "tunnelChoice",
       message: "Which option are you using?",
       choices: [
-        { title: "Free ngrok — I'll paste a new URL each restart", value: "free" },
+        { title: "Cloudflare quick tunnel (or free ngrok) — rotating URL each restart", value: "free" },
+        { title: "Named Cloudflare Tunnel or another stable URL", value: "static" },
         { title: "ngrok reserved domain (paid)", value: "ngrok-domain" },
-        { title: "Cloudflare Tunnel or another stable URL", value: "static" },
       ],
       initial: 0,
     },
@@ -749,7 +753,8 @@ re-pasting into Sendblue every time. For a stable URL, pick one of:
     const { PUBLIC_URL } = await prompts({
       type: "text",
       name: "PUBLIC_URL",
-      message: "Your stable public URL (e.g. https://boop.mydomain.com):",
+      message:
+        "Your stable public URL (e.g. https://boop.mydomain.com — for a named Cloudflare Tunnel, also set CLOUDFLARE_TUNNEL=<tunnel-name> in .env.local so `npm run dev` starts it for you):",
       initial: existing.PUBLIC_URL ?? "",
     });
     if (PUBLIC_URL) {
@@ -757,7 +762,8 @@ re-pasting into Sendblue every time. For a stable URL, pick one of:
       (answers as any).NGROK_DOMAIN = "";
     }
   } else {
-    // free ngrok — clear any stale domain and keep PUBLIC_URL at the localhost default
+    // rotating tunnel URL (Cloudflare quick tunnel / free ngrok) — clear any
+    // stale domain and keep PUBLIC_URL at the localhost default
     (answers as any).NGROK_DOMAIN = "";
   }
 
@@ -833,32 +839,40 @@ ${claudeInstalled ? "✓ Claude Code found on PATH." : "⚠ Claude Code was not 
   const port = answers.PORT ?? "3456";
   banner("You're set up. Here's how to actually run it.");
   console.log(`
-Before you start: install ngrok (one-time).
+Before you start: install cloudflared (one-time). No account needed.
 
-  brew install ngrok                           # macOS
-  # or download:  https://ngrok.com/download
-  ngrok config add-authtoken <your-token>      # free at https://dashboard.ngrok.com
-
-⚠ ngrok's FREE plan gives you a NEW URL every restart. That means
-  re-pasting into Sendblue every time.  For anything beyond a demo,
-  use a stable URL:
-    • ngrok paid plan (reserved domain), or
-    • Cloudflare Tunnel: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/
+  brew install cloudflared                     # macOS
+  # or download:  https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
 
 Then run ONE command:
 
   npm run dev
 
-That starts the server, Convex watcher, debug dashboard, AND ngrok all
-together — color-prefixed output so you can tell who's saying what. Once
-the tunnel is live, you'll see a banner with your public URL.
+That starts the server, Convex watcher, and debug dashboard together —
+color-prefixed output so you can tell who's saying what.
 
-Wire up Sendblue (one-time, takes ~30 seconds):
+In a SECOND terminal, open the tunnel so Sendblue can reach your server:
 
-  1. Copy the "Sendblue webhook" URL printed by ngrok.
-  2. Sendblue dashboard → API Settings → Webhook Configuration
-  3. Add it as an INBOUND MESSAGE webhook.
-  4. Paste the URL. Save.
+  cloudflared tunnel --url http://localhost:${port}
+
+It prints a random public URL like https://<your-tunnel>.trycloudflare.com
+(a new one every run).
+
+Wire up Sendblue (takes ~30 seconds):
+
+  npm run sendblue:webhook -- https://<your-tunnel>.trycloudflare.com/sendblue/webhook
+
+  (Or paste the URL into Sendblue dashboard → API Settings → Webhook
+  Configuration as an INBOUND MESSAGE webhook. Re-register whenever the
+  quick-tunnel URL changes.)
+
+⚠ Quick-tunnel URLs rotate every restart. For anything beyond a demo, use
+  a stable URL:
+    • Named Cloudflare Tunnel (free Cloudflare account + your own domain) —
+      set CLOUDFLARE_TUNNEL=<tunnel-name> and PUBLIC_URL in .env.local and
+      \`npm run dev\` starts it for you.
+    • Any other HTTPS tunnel with a static URL (ngrok reserved domain,
+      Tailscale Funnel, …) also works — set PUBLIC_URL to it.
 
 Test it:
   • Open http://localhost:5173 for the debug dashboard (Chat tab works

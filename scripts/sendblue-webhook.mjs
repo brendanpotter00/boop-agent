@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 // Registers (or re-registers) the inbound message webhook with Sendblue via
-// their CLI, so free-ngrok users don't have to paste into the dashboard
-// every time their tunnel URL rotates.
+// their CLI, so users with rotating tunnel URLs (Cloudflare quick tunnels,
+// free ngrok) don't have to paste into the dashboard every time the URL rotates.
 //
 // Usage:
 //   node scripts/sendblue-webhook.mjs <public-webhook-url>
+//   e.g.  npm run sendblue:webhook -- https://<your-tunnel>.trycloudflare.com/sendblue/webhook
 //
 // Behavior:
 //   1. Runs `sendblue webhooks` to list current inbound hooks.
-//   2. Removes any stale *.ngrok-free.app / *.ngrok-free.dev / *.ngrok.app / trycloudflare.com
+//   2. Removes any stale *.trycloudflare.com / *.ngrok-free.app / *.ngrok-free.dev / *.ngrok.app
 //      webhooks of type=receive that don't match the new URL.
 //   3. Adds the new URL as type=receive (unless already registered).
 

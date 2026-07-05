@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// One command to run Boop locally: server + convex + debug dashboard + ngrok.
+// One command to run Boop locally: server + convex + debug dashboard + tunnel
+// (a named Cloudflare tunnel via CLOUDFLARE_TUNNEL, or ngrok if installed).
 // Prefixes each child's output so you can tell who's saying what.
 
 import { spawn } from "node:child_process";
@@ -188,7 +189,8 @@ function showBanner(url, stable) {
     ? ``
     : `\n${C.dim}  ℹ The inbound webhook above was registered with Sendblue automatically.
     Set SENDBLUE_AUTO_WEBHOOK=false in .env.local to disable, or pick a
-    stable URL (ngrok paid / Cloudflare Tunnel) via \`npm run setup\`.${C.reset}\n`;
+    stable URL (named Cloudflare Tunnel / ngrok reserved domain) via
+    \`npm run setup\`.${C.reset}\n`;
   const guide = stable
     ? `\n  → First time? Sendblue dashboard → API Settings → Webhook\n    Configuration → add ${webhook} as INBOUND MESSAGE.\n`
     : ``;
@@ -210,12 +212,13 @@ if (useNgrok) {
   ngrokInstalled = await hasBinary("ngrok");
   if (!ngrokInstalled) {
     console.log(`
-${C.ngrok}! ngrok is not installed — running without a public tunnel.${C.reset}
-${C.dim}  Install:   brew install ngrok         (macOS)
-             or download from https://ngrok.com/download
-  Auth:      ngrok config add-authtoken <token>
-             (free token at https://dashboard.ngrok.com)
-  Without ngrok you can still use the debug dashboard at http://localhost:5173
+${C.ngrok}! No tunnel managed by this script (ngrok not installed — that's fine).${C.reset}
+${C.dim}  Recommended: expose the server with a Cloudflare quick tunnel in a
+  second terminal:
+    Install:   brew install cloudflared        (macOS)
+    Run:       cloudflared tunnel --url http://localhost:${port}
+    Register:  npm run sendblue:webhook -- https://<your-tunnel>.trycloudflare.com/sendblue/webhook
+  Without a tunnel you can still use the debug dashboard at http://localhost:5173
   — iMessage replies via Sendblue won't work until your server is reachable.${C.reset}
 `);
   }
@@ -358,8 +361,11 @@ ${C.banner}${line}
 
   🐶 Debug dashboard:   ${dashboardUrl}
 
-  ⚠ No public tunnel configured. iMessage won't work until you expose
-    the server. Use the Chat tab in the dashboard to test for now.
+  ⚠ No public tunnel managed by this script. iMessage won't work until
+    you expose the server, e.g. in a second terminal:
+      cloudflared tunnel --url http://localhost:${port}
+      npm run sendblue:webhook -- https://<your-tunnel>.trycloudflare.com/sendblue/webhook
+    Use the Chat tab in the dashboard to test for now.
 ${line}${C.reset}
 `);
     }
