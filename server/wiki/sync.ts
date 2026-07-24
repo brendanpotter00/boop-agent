@@ -80,6 +80,8 @@ export interface SyncStats {
   chunksSkipped: number;
   orphansDeleted: number;
   embedFailures: number;
+  /** Files present in the vault that could not be read this pass. */
+  readFailures: number;
 }
 
 export async function syncVault(opts: { runId: string; embedInline?: boolean }): Promise<SyncStats> {
@@ -92,7 +94,13 @@ export async function syncVault(opts: { runId: string; embedInline?: boolean }):
     chunksSkipped: 0,
     orphansDeleted: 0,
     embedFailures: 0,
+    readFailures: 0,
   };
+
+  // An empty walk means the vault was unreadable, not that every page was
+  // deleted. Bailing before the orphan pass keeps a transient filesystem blip
+  // from wiping the entire derived index.
+  if (files.length === 0) return stats;
 
   for (const f of files) {
     await syncFile(f, opts.runId, embedInline, stats);
@@ -118,6 +126,17 @@ async function syncFile(
   try {
     text = await readFile(f.abs, "utf8");
   } catch {
+    // The file is still in the vault — we just couldn't read it this pass
+    // (Obsidian/ingest rewrites are not atomic). Returning without marking it
+    // seen used to make the orphan pass below treat it as deleted and evict it
+    // from Convex, which is what silently drained the manifest and left
+    // wiki_read's fallback with nothing to serve. Mark it seen and skip.
+    stats.readFailures++;
+    try {
+      await convex.mutation(api.wikiChunks.markFileRun, { sourcePath: f.rel, runId });
+    } catch {
+      /* file isn't in the manifest yet — nothing to preserve */
+    }
     return;
   }
   const fileHash = sha256(text);

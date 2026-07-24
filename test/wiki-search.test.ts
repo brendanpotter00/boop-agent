@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, chmod, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -110,6 +110,36 @@ describe("wikiIndex", () => {
     const people = await wikiIndex({ category: "People" });
     expect(people).toContain("[[alice]]");
     expect(people).not.toContain("[[data-migration]]");
+  });
+
+  // Regression: a single unreadable moment used to disable the catalog for the
+  // life of the process. The empty result was cached against index.md's mtime,
+  // and since the failing read didn't change that mtime, nothing ever
+  // invalidated it — wiki_index answered "index is empty" until a restart.
+  it("recovers after a transient index.md read failure", async () => {
+    const indexAbs = join(root, "wiki/index.md");
+    const original = await readFile(indexAbs, "utf8");
+
+    // Warm the cache, then reproduce an ingest rewrite whose new bytes land
+    // before the read does: mtime moves (so the cache misses) while the file
+    // is momentarily unreadable. That combination is what poisoned the cache —
+    // the empty result got stored under the very mtime that would have to
+    // change again to evict it.
+    await wikiIndex({});
+    await writeFile(indexAbs, `${original}- [[late-page]] — added by ingest\n`, "utf8");
+    await chmod(indexAbs, 0o000);
+    const whileUnreadable = await wikiIndex({});
+    await chmod(indexAbs, 0o644);
+
+    const afterRecovery = await wikiIndex({});
+    expect(afterRecovery).toContain("[[alice]]");
+    expect(afterRecovery).toContain("[[late-page]]");
+    expect(afterRecovery).not.toContain("index is empty");
+    // Serving the last known-good catalog through the blip is fine; going
+    // permanently empty afterwards is the bug.
+    expect(whileUnreadable).not.toContain("index is empty");
+
+    await writeFile(indexAbs, original, "utf8");
   });
 });
 

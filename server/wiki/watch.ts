@@ -1,6 +1,6 @@
 import { watch } from "node:fs";
 import { vaultRoot, wikiConfigured } from "./paths.js";
-import { reembedPending, syncVault } from "./sync.js";
+import { reembedPending, syncVault, type SyncStats } from "./sync.js";
 
 /**
  * Keeps the derived Convex index in sync with the vault. Two triggers:
@@ -18,9 +18,26 @@ let started = false;
 let pending: ReturnType<typeof setTimeout> | null = null;
 let running = false;
 let rerun = false;
+/** In-flight sync, so a manual trigger joins it instead of racing it. */
+let inFlight: Promise<SyncStats> | null = null;
 
 function runId(): string {
   return `auto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * The ONLY place `syncVault` is invoked. Two overlapping runs are actively
+ * destructive: each ends by deleting every manifest row not stamped with its
+ * own runId, so run A's orphan pass evicts everything run B just synced (and
+ * vice versa), draining the index that wiki_read falls back to. Callers share
+ * one in-flight run instead.
+ */
+function runSync(): Promise<SyncStats> {
+  if (inFlight) return inFlight;
+  inFlight = syncVault({ runId: runId(), embedInline: true }).finally(() => {
+    inFlight = null;
+  });
+  return inFlight;
 }
 
 async function doSync(reason: string): Promise<void> {
@@ -30,8 +47,13 @@ async function doSync(reason: string): Promise<void> {
   }
   running = true;
   try {
-    const stats = await syncVault({ runId: runId(), embedInline: true });
-    if (stats.filesChanged || stats.orphansDeleted || stats.embedFailures) {
+    const stats = await runSync();
+    if (
+      stats.filesChanged ||
+      stats.orphansDeleted ||
+      stats.embedFailures ||
+      stats.readFailures
+    ) {
       console.log(`[wiki] sync (${reason})`, stats);
     }
     if (stats.embedFailures > 0) await reembedPending({ maxBatches: 50 });
@@ -79,7 +101,7 @@ export function startWikiSync(): void {
   timer.unref?.();
 }
 
-/** Manual trigger for the HTTP route. Returns sync stats. */
-export async function runWikiSyncNow(): Promise<Awaited<ReturnType<typeof syncVault>>> {
-  return syncVault({ runId: runId(), embedInline: true });
+/** Manual trigger for the HTTP route. Joins any in-flight sync. */
+export async function runWikiSyncNow(): Promise<SyncStats> {
+  return runSync();
 }

@@ -345,7 +345,7 @@ export async function wikiRead(opts: { path: string }): Promise<string> {
   let text: string;
   try {
     text = await readFile(abs, "utf8");
-  } catch {
+  } catch (err) {
     // Filesystem unreachable (e.g. remote deploy) — fall back to the page
     // content cached in Convex by the sync pipeline.
     try {
@@ -358,9 +358,18 @@ export async function wikiRead(opts: { path: string }): Promise<string> {
         return `# ${rel}\n\n${body}`;
       }
     } catch {
-      /* Convex also unavailable — fall through to not-found */
+      /* Convex also unavailable — fall through below */
     }
-    return `Page not found: ${rel}. Use wiki_search or wiki_index to find the right path.`;
+    // Only ENOENT means the page really isn't there. Reporting every failure
+    // as "Page not found" told the agent its own paths were wrong, so it kept
+    // guessing formats and eventually concluded the vault was unreadable —
+    // when the real cause was a transient error worth retrying.
+    if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
+      return `Page not found: ${rel}. Use wiki_search or wiki_index to find the right path.`;
+    }
+    return `Could not read ${rel} right now (${
+      (err as NodeJS.ErrnoException)?.code ?? "read error"
+    }) — the page exists but the vault was unreadable this instant. Retry the same path.`;
   }
   if (Buffer.byteLength(text, "utf8") > READ_CAP_BYTES) {
     text = text.slice(0, READ_CAP_BYTES) + "\n\n…[truncated — page longer than 24KB]";
