@@ -32,8 +32,11 @@ let indexCache:
   | null = null;
 
 let slugCache:
-  | { mtimeMs: number; map: Map<string, string> }
+  | { mtimeMs: number; builtAt: number; map: Map<string, string> }
   | null = null;
+
+/** How long a slug→path map is trusted before the vault is re-walked. */
+const SLUG_TTL_MS = 60_000;
 
 async function indexMtime(): Promise<number> {
   try {
@@ -52,8 +55,14 @@ export async function parseIndex(): Promise<IndexEntry[]> {
   try {
     text = await readFile(join(vaultRoot(), INDEX_REL), "utf8");
   } catch {
-    indexCache = { mtimeMs, entries: [] };
-    return [];
+    // NEVER cache a failed read. `index.md` is rewritten in place by the
+    // vault's ingest workflow, so a read landing mid-rewrite fails even though
+    // the file is fine a moment later. Caching that empty result keyed by the
+    // *new* mtime pinned wiki_index to "index is empty" permanently: the write
+    // that broke the read is the same write that set the mtime we cached
+    // against, so nothing ever invalidated it again. Serve the last
+    // known-good catalog and retry on the next call instead.
+    return indexCache?.entries ?? [];
   }
 
   const entries: IndexEntry[] = [];
@@ -84,12 +93,22 @@ export async function parseIndex(): Promise<IndexEntry[]> {
  * so this lets us turn an index/wikilink slug into a readable path. On a rare
  * cross-section collision, the curated `wiki/` copy wins over `raw/`.
  *
- * Keyed by `index.md` mtime as a cheap invalidation signal: the vault's ingest
- * workflow updates `index.md` whenever pages are added/removed.
+ * Invalidated by `index.md`'s mtime (the ingest workflow touches it whenever
+ * pages are added/removed) *and* a short TTL, so pages added outside an ingest
+ * run still become readable without a restart.
  */
 export async function slugMap(): Promise<Map<string, string>> {
   const mtimeMs = await indexMtime();
-  if (slugCache && slugCache.mtimeMs === mtimeMs) return slugCache.map;
+  // `index.md`'s mtime alone is too weak a signal: a page added or renamed
+  // without an ingest run leaves the map stale, so `wiki_read [[slug]]` 404s on
+  // a page that exists. Pair it with a short TTL so the map self-heals.
+  if (
+    slugCache &&
+    slugCache.mtimeMs === mtimeMs &&
+    Date.now() - slugCache.builtAt < SLUG_TTL_MS
+  ) {
+    return slugCache.map;
+  }
   const files = await enumerateMarkdown();
   const map = new Map<string, string>();
   for (const f of files) {
@@ -99,7 +118,11 @@ export async function slugMap(): Promise<Map<string, string>> {
       map.set(slug, f.rel);
     }
   }
-  slugCache = { mtimeMs, map };
+  // An empty map means the walk found nothing — a transient vault read error,
+  // not a real answer. Caching it would poison slug resolution the same way a
+  // cached empty catalog poisoned wiki_index; keep the previous map instead.
+  if (map.size === 0 && slugCache) return slugCache.map;
+  slugCache = { mtimeMs, builtAt: Date.now(), map };
   return map;
 }
 
