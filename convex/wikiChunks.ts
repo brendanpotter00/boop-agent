@@ -310,16 +310,81 @@ export const deleteFile = mutation({
   },
 });
 
-export const stats = query({
-  args: {},
-  handler: async (ctx) => {
-    const chunks = await ctx.db
+/**
+ * One page of the stats scan. Counting is unavoidably a full-table walk (Convex
+ * reads whole documents — there is no projection), and these rows are fat:
+ * `wikiFiles.content` holds an entire page and every chunk carries a 1024-float
+ * embedding. Counting both tables in a single execution blew the 16MB
+ * read-per-execution limit once the index was fully populated — the query
+ * failed precisely when the vault was healthy. Convex's byte budget is per
+ * execution, so the fix has to be more executions, not a smaller `take`.
+ */
+export const statsPage = query({
+  args: {
+    table: v.union(v.literal("chunks"), v.literal("files")),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    numItems: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    // Sized so a page stays well inside 16MB: chunk ≈ content + 1024 floats
+    // (~8KB), file = one whole markdown page (tens of KB).
+    const numItems = args.numItems ?? (args.table === "chunks" ? 400 : 100);
+    if (args.table === "files") {
+      const page = await ctx.db
+        .query("wikiFiles")
+        .paginate({ cursor: args.cursor ?? null, numItems });
+      return {
+        count: page.page.length,
+        embedded: 0,
+        isDone: page.isDone,
+        continueCursor: page.continueCursor,
+      };
+    }
+    const page = await ctx.db
       .query("wikiChunks")
       .withIndex("by_lifecycle", (q) => q.eq("lifecycle", "active"))
-      .take(20000);
+      .paginate({ cursor: args.cursor ?? null, numItems });
     let embedded = 0;
-    for (const c of chunks) if (c.embedding && c.embedding.length > 0) embedded++;
-    const files = await ctx.db.query("wikiFiles").take(20000);
-    return { chunks: chunks.length, embedded, files: files.length };
+    for (const c of page.page) if (c.embedding && c.embedding.length > 0) embedded++;
+    return {
+      count: page.page.length,
+      embedded,
+      isDone: page.isDone,
+      continueCursor: page.continueCursor,
+    };
+  },
+});
+
+/**
+ * Index health: active chunks, how many are embedded, and files in the
+ * manifest. Diagnostic only — nothing in the request path calls it.
+ */
+export const stats = action({
+  args: {},
+  handler: async (ctx): Promise<{ chunks: number; embedded: number; files: number }> => {
+    const walk = async (table: "chunks" | "files") => {
+      let cursor: string | null = null;
+      let count = 0;
+      let embedded = 0;
+      // Bounded so a cursor that never reports done can't spin forever.
+      for (let page = 0; page < 500; page++) {
+        // Explicit annotation: this action references `api` from its own file,
+        // so inference would otherwise be circular.
+        const res: {
+          count: number;
+          embedded: number;
+          isDone: boolean;
+          continueCursor: string;
+        } = await ctx.runQuery(api.wikiChunks.statsPage, { table, cursor });
+        count += res.count;
+        embedded += res.embedded;
+        if (res.isDone) break;
+        cursor = res.continueCursor;
+      }
+      return { count, embedded };
+    };
+    const chunks = await walk("chunks");
+    const files = await walk("files");
+    return { chunks: chunks.count, embedded: chunks.embedded, files: files.count };
   },
 });

@@ -13,11 +13,24 @@ import { reembedPending, syncVault, type SyncStats } from "./sync.js";
 
 const DEBOUNCE_MS = 2000;
 const PERIODIC_MS = 30 * 60 * 1000;
+/**
+ * Boot is the worst moment to walk the whole vault: the embedding model
+ * (~440MB), the Convex connection and every integration all initialise at
+ * once, and reads lose that race — a measured 120 of 303 files failed on a
+ * 1.5s delay, then read fine once the process settled. Nothing is lost now
+ * that unreadable files are preserved rather than orphaned, but the work is
+ * wasted, so let the process settle first.
+ */
+const STARTUP_DELAY_MS = 30_000;
+/** Re-run after read failures, so a bad pass heals in seconds not 30 minutes. */
+const READ_RETRY_DELAY_MS = 30_000;
+const READ_RETRY_MAX = 3;
 
 let started = false;
 let pending: ReturnType<typeof setTimeout> | null = null;
 let running = false;
 let rerun = false;
+let readRetries = 0;
 /** In-flight sync, so a manual trigger joins it instead of racing it. */
 let inFlight: Promise<SyncStats> | null = null;
 
@@ -46,6 +59,7 @@ async function doSync(reason: string): Promise<void> {
     return;
   }
   running = true;
+  let retryReads = false;
   try {
     const stats = await runSync();
     if (
@@ -57,6 +71,15 @@ async function doSync(reason: string): Promise<void> {
       console.log(`[wiki] sync (${reason})`, stats);
     }
     if (stats.embedFailures > 0) await reembedPending({ maxBatches: 50 });
+    // Files we couldn't read are still in the vault and were deliberately left
+    // in the manifest, so they're simply missing their latest content. Come
+    // back for them shortly instead of waiting for the periodic sweep.
+    if (stats.readFailures > 0 && readRetries < READ_RETRY_MAX) {
+      readRetries++;
+      retryReads = true;
+    } else {
+      readRetries = 0;
+    }
   } catch (err) {
     console.warn("[wiki] sync failed:", err);
   } finally {
@@ -64,6 +87,8 @@ async function doSync(reason: string): Promise<void> {
     if (rerun) {
       rerun = false;
       schedule("coalesced", 500);
+    } else if (retryReads) {
+      schedule("read-retry", READ_RETRY_DELAY_MS);
     }
   }
 }
@@ -88,7 +113,7 @@ export function startWikiSync(): void {
   }
   // Initial reconcile on boot (covers edits made while the server was down,
   // and the first-ever backfill).
-  schedule("startup", 1500);
+  schedule("startup", STARTUP_DELAY_MS);
   try {
     watch(root, { recursive: true }, (_event, filename) => {
       if (filename && String(filename).endsWith(".md")) schedule("fs-change");
