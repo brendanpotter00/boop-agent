@@ -2,9 +2,13 @@
 
 Boop's integrations are provided by [Composio](https://composio.dev/?utm_source=chris&utm_medium=youtube&utm_campaign=collab), a tool-aggregator that exposes 1000+ third-party services (Gmail, GitHub, Slack, Notion, Linear, Google Drive, HubSpot, Salesforce, …) behind one API.
 
-There is one built-in non-Composio integration: **Local browser use**. It registers as `browser` only when enabled in the debug dashboard and gives spawned agents a local Patchright Chrome profile for login-required services, visual workflows, JS-heavy pages, or sites that may detect ordinary automation.
+Some integrations are built in rather than provided by Composio, because they talk to a local machine or benefit from hand-tuned tools:
 
-You don't write integration code. You:
+- **Local browser use** registers as `browser` only when enabled in the debug dashboard, and gives spawned agents a local Patchright Chrome profile for login-required services, visual workflows, JS-heavy pages, or sites that may detect ordinary automation.
+- **ClickUp** registers as `clickup` when `CLICKUP_API_KEY` is set, and talks to ClickUp's REST API directly to avoid the per-day tool-call cap on ClickUp's hosted MCP. See [ClickUp](#clickup).
+- **Local Mac data** (`apple`) and the **personal wiki** (`wiki`) are documented in the main README.
+
+For everything else you don't write integration code. You:
 
 1. Put `COMPOSIO_API_KEY` in `.env.local`.
 2. Open the debug dashboard → **Connections** tab.
@@ -64,6 +68,60 @@ Settings live under **Settings → Local browser use**:
 Boop does not store third-party passwords or OAuth tokens for this feature. Login state lives in the selected local Chrome profile.
 
 Browser control HTTP routes are local-only and reject public tunnel requests before launching, closing, installing, or inspecting Chrome. The `browser_fill` tool also redacts typed values before tool-use arguments are persisted to Convex logs.
+
+---
+
+## ClickUp
+
+ClickUp is a second built-in non-Composio integration, registered by `server/integrations/clickup-loader.ts`. It gives spawned agents ticketing: search, read, create, and update tasks; comment; book and report time; and read/write ClickUp Docs.
+
+### Why it isn't the hosted ClickUp MCP
+
+ClickUp ships its own hosted MCP server, but that product meters **tool calls per day** (100/day), which an always-on agent burns through quickly. Boop instead talks to the ClickUp **REST API** with a personal API token. That path is governed by a different, far more generous budget: **~100 requests per minute, per token**, reported on every response via `x-ratelimit-limit` / `x-ratelimit-remaining` / `x-ratelimit-reset`.
+
+Because the budget is per-minute and per-token, the tools are written to be request-frugal:
+
+- Filtering runs server-side wherever ClickUp supports it (`list_ids[]`, `space_ids[]`, `statuses[]`, `assignees[]`).
+- The workspace tree (spaces → folders → lists) is cached for ten minutes, and list metadata for five; concurrent callers share one in-flight request.
+- Text search scans a **bounded** window of recently-updated tasks rather than paging the whole workspace. ClickUp's v2 API has no server-side full-text search, so narrowing with `list_ids` matters — pass it when you know the list.
+
+For reference, a full exercise of nine tools (browse → create → comment → update → log time → read → search → time report) costs about 14 requests.
+
+If Boop and another client (e.g. a local ClickUp MCP in your editor) share one token, they share one 100/min bucket. Issue separate tokens to give them independent budgets.
+
+### Setup
+
+Add to `.env.local`:
+
+```bash
+CLICKUP_API_KEY=pk_...          # ClickUp → Settings → Apps → API Token
+CLICKUP_TEAM_ID=9012345678     # optional; auto-resolved for single-workspace tokens
+CLICKUP_DEFAULT_LIST_ID=...     # optional but recommended
+```
+
+`CLICKUP_API_KEY` alone enables the integration. `CLICKUP_DEFAULT_LIST_ID` is what makes `clickup_create_task` a single API call — without it the agent must call `clickup_list_spaces` first to discover where to file.
+
+### Tools
+
+| Tool | Purpose |
+| --- | --- |
+| `clickup_list_spaces` | Browse spaces → folders → lists with ids (cached) |
+| `clickup_get_list` | List description and the status names valid for it |
+| `clickup_search_tasks` | Search/filter tasks |
+| `clickup_get_task` | One task in full, optionally with comments |
+| `clickup_create_task` | File a ticket |
+| `clickup_update_task` | Status, priority, assignees, dates, estimate, append description |
+| `clickup_add_comment` | Comment on a task |
+| `clickup_log_time` | Book time (decimal hours) |
+| `clickup_get_time_entries` | Report logged time |
+| `clickup_list_docs` | List ClickUp Docs |
+| `clickup_read_doc` | Read doc pages as markdown |
+| `clickup_create_doc` | Create a doc, or add a page to one |
+| `clickup_update_doc_page` | Update a page (appends by default) |
+
+Two write-safety choices worth knowing: task description edits are **append-only** (use `clickup_add_comment` for progress notes), and doc page updates **append** unless you pass `append: false`.
+
+Reachable via `spawn_agent({ integrations: ["clickup"] })`, which gives the sub-agent `mcp__clickup__*`. Unlike `wiki`, ClickUp is not wired directly into the dispatcher — 13 tools would weigh down every dispatcher prompt. Move `createClickUpTools()` into `interaction-agent.ts` alongside the wiki tools if you'd rather file tickets in a single round-trip.
 
 ---
 
