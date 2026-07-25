@@ -1,9 +1,17 @@
 import { mkdtemp, mkdir, writeFile, rm, chmod, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { fuse, wikiIndex, wikiRead, wikiSearch } from "../server/wiki/search.js";
 import { createWikiTools } from "../server/wiki/tools.js";
+
+// wikiSearch's semantic leg lazily loads Xenova/bge-large-en-v1.5 (~440MB).
+// Warm, that costs ~2s; cold — a fresh clone or a CI runner — the download
+// takes 20s+ and blows the 10s global testTimeout, so these tests passed only
+// on machines that happened to have the model cached. The load is a one-time
+// cost amortized across the file, so widen the timeout here rather than
+// globally, which would slow genuine hangs in every other suite.
+vi.setConfig({ testTimeout: 120_000 });
 
 // Builds a throwaway fixture vault (never the real one) and points
 // WIKI_VAULT_PATH at it. Mirrors the env-backup idiom in sendblue.test.ts.
