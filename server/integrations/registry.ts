@@ -49,6 +49,8 @@ export async function loadIntegrations(): Promise<void> {
   registerAppleIntegration();
   const { registerWikiIntegration } = await import("./wiki-loader.js");
   registerWikiIntegration();
+  const { registerClickUpIntegration } = await import("./clickup-loader.js");
+  registerClickUpIntegration();
   const loaded = [...registry.keys()];
   const enabled = (await listEnabledIntegrations()).map((i) => i.name);
   console.log(

@@ -69,6 +69,7 @@ const TOOL_BRANDS: ToolBrand[] = [
   { key: "trello", displayName: "Trello", domain: "trello.com", aliases: ["trello"] },
   { key: "asana", displayName: "Asana", domain: "asana.com", aliases: ["asana"] },
   { key: "jira", displayName: "Jira", domain: "atlassian.com", aliases: ["jira"] },
+  { key: "clickup", displayName: "ClickUp", domain: "clickup.com", aliases: ["clickup"] },
   { key: "airtable", displayName: "Airtable", domain: "airtable.com", aliases: ["airtable"] },
   { key: "figma", displayName: "Figma", domain: "figma.com", aliases: ["figma"] },
   { key: "dropbox", displayName: "Dropbox", domain: "dropbox.com", aliases: ["dropbox"] },
