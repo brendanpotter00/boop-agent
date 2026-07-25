@@ -8,7 +8,12 @@ build/
 *.log
 .DS_Store
 .convex/
-convex/_generated/
+# convex/_generated/ IS committed: `npx convex codegen` requires an
+# authenticated deployment, so CI cannot regenerate it on a fresh checkout.
+# The files are derived purely from convex/*.ts and hold no deployment ids or
+# secrets. `npm run dev` rewrites them locally; commit the diff when a Convex
+# function or the schema changes. The ai/ subdir is tooling, not codegen.
+convex/_generated/ai/
 data/
 *.db
 *.db-journal
