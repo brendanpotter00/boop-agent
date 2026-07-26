@@ -36,6 +36,12 @@ export interface RuntimeRunRequest {
   allowedTools?: string[];
   disallowedTools?: string[];
   cwd?: string;
+  /**
+   * Extended thinking budget. Used to give a planning agent room to reason
+   * hard about an irreversible change while the executor that carries the plan
+   * out stays cheap.
+   */
+  maxThinkingTokens?: number;
   abortController?: AbortController;
   mode: RuntimeMode;
   onText?: (text: string) => void | Promise<void>;

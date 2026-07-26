@@ -71,6 +71,18 @@ async function doSync(reason: string): Promise<void> {
       console.log(`[wiki] sync (${reason})`, stats);
     }
     if (stats.embedFailures > 0) await reembedPending({ maxBatches: 50 });
+    // A page iCloud refused to materialize will fail identically on every
+    // retry, so the 30s retry loop just burns cycles forever while the index
+    // silently rots — which is exactly what happened here (304/304 files
+    // failing, 0 chunks upserted, for weeks). Say what is wrong and how to fix
+    // it instead of quietly spinning.
+    if (stats.datalessFailures > 0) {
+      console.warn(
+        `[wiki] ${stats.datalessFailures} page(s) are iCloud-evicted and could not be materialized. ` +
+          `The index is INCOMPLETE. Fix: run \`find "$WIKI_VAULT_PATH" -name '*.md' -type f -exec brctl download {} \\;\`, ` +
+          `turn off iCloud "Optimize Mac Storage", and ensure the launchd plist sets <key>MaterializeDatalessFiles</key><true/>.`,
+      );
+    }
     // Files we couldn't read are still in the vault and were deliberately left
     // in the manifest, so they're simply missing their latest content. Come
     // back for them shortly instead of waiting for the periodic sweep.

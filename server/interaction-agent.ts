@@ -3,6 +3,7 @@ import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
 import { createMemoryTools } from "./memory/tools.js";
 import { createWikiTools } from "./wiki/tools.js";
+import { createWikiOpsTools } from "./wiki/workflow-tools.js";
 import { extractAndStore } from "./memory/extract.js";
 import { spawnExecutionAgent } from "./execution-agent.js";
 import { listEnabledIntegrations } from "./integrations/registry.js";
@@ -60,10 +61,10 @@ API access. That lack of access is the signal to call send_ack, then
 spawn_agent. Refusing or suggesting the user use another tool is a failure
 unless the spawned agent already tried and could not complete the task.
 
-Exception — the user's OWN personal wiki: this is local, read-only knowledge
-(not the outside world), so answer from it INLINE with wiki_search/wiki_read,
-exactly like recall — do NOT spawn_agent for it. See "Personal knowledge
-vault" below.
+Exception — the user's OWN personal wiki: reading it is local knowledge (not
+the outside world), so answer from it INLINE with wiki_search/wiki_read,
+exactly like recall — do NOT spawn_agent for it. To WRITE to it, use
+plan_wiki_edit (never spawn_agent). See "Personal knowledge vault" below.
 
 Acknowledgment rule (iMessage UX):
 BEFORE every spawn_agent call, you MUST call send_ack first with a short
@@ -95,19 +96,35 @@ specific, STOP and call recall() first.
 Recall is cheap. Overuse is correct. Underuse is a bug. Multiple recalls
 per turn are fine and encouraged — different segments, different angles.
 
-Personal knowledge vault — wiki_search / wiki_read / wiki_index:
+Personal knowledge vault — READING (wiki_search / wiki_read / wiki_index):
 The user keeps a curated personal wiki (interview prep, people, companies,
-current work, projects, personal notes). This is LOCAL, read-only
-knowledge — treat it like recall, NOT like the outside world: answer from it
-directly, WITHOUT spawn_agent. Flow: recall() first; then if the question
-touches the user's own documented knowledge, call wiki_search (it returns ONE
-ranked list of pages), then wiki_read the top hit(s). Use wiki_index to browse
-what exists. Prefer curated wiki/ pages over raw/ transcripts; cite pages as
-[[slug]]. The vault is the source of truth and you must NEVER write to it — if
-you learn a new durable fact during a wiki conversation, write_memory it (the
-inbox) so it can later be promoted into the wiki. For heavy multi-page
-synthesis ("summarize all my interview prep"), you may still spawn_agent with
-the wiki integration.
+current work, projects, personal notes). Reading it is LOCAL — treat it like
+recall, NOT like the outside world: answer from it directly, WITHOUT
+spawn_agent. Flow: recall() first; then if the question touches the user's own
+documented knowledge, call wiki_search (it returns ONE ranked list of pages),
+then wiki_read the top hit(s). Use wiki_index to browse what exists. Prefer
+curated wiki/ pages over raw/ transcripts; cite pages as [[slug]]. For heavy
+multi-page synthesis ("summarize all my interview prep"), you may still
+spawn_agent with the wiki integration.
+
+Personal knowledge vault — WRITING (plan_wiki_edit, then send_draft):
+You CAN now write to the vault, but never directly and never via spawn_agent.
+When the user wants something recorded in the wiki — "add this to my wiki",
+"write this down", "update my notes on X", or any dictated narrative clearly
+meant to be captured — call plan_wiki_edit with their request INCLUDING their
+dictated content verbatim. It runs a high-effort planner that cannot write,
+and stages a plan.
+Then: relay the plan to the user and ask them to confirm. On "go"/"yes", call
+send_draft. On "no", reject_draft. Never skip the confirmation — the vault has
+no version control and no undo.
+Do NOT answer a capture request with write_memory alone. Memory is the inbox
+for incidental facts; an explicit "put this in my wiki" is a plan_wiki_edit.
+
+Vault maintenance — wiki_reindex / wiki_ingest / wiki_lint:
+These run the vault's own documented workflows. Use wiki_lint when the user
+asks to check the wiki's health, wiki_ingest to synthesise raw sources into
+curated pages, wiki_reindex to refresh the raw catalog. They take a while —
+send_ack first.
 
 write_memory() — call aggressively for durable facts. Err on the side of
 saving. If the user reveals anything personal, factual, or preferential,
@@ -472,6 +489,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
   const tools = [
     ...createMemoryTools(opts.conversationId),
     ...createWikiTools(),
+    ...createWikiOpsTools(opts.conversationId, runtimeConfig),
     ...createAutomationTools(opts.conversationId),
     ...createDraftDecisionTools(opts.conversationId, runtimeConfig),
     ...createSelfTools(),
@@ -559,6 +577,13 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
               "mcp__wiki__wiki_search",
               "mcp__wiki__wiki_read",
               "mcp__wiki__wiki_index",
+              // Deliberately no mcp__wiki__wiki_write/_edit/_append here: the
+              // dispatcher stays read-only on the vault so every mutation goes
+              // through plan_wiki_edit → user approval → send_draft.
+              "mcp__boop-wiki-ops__plan_wiki_edit",
+              "mcp__boop-wiki-ops__wiki_reindex",
+              "mcp__boop-wiki-ops__wiki_ingest",
+              "mcp__boop-wiki-ops__wiki_lint",
               "mcp__boop-spawn__spawn_agent",
               "mcp__boop-automations__create_automation",
               "mcp__boop-automations__list_automations",

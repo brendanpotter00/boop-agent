@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { api } from "../../convex/_generated/api.js";
 import type { Id } from "../../convex/_generated/dataModel.js";
 import { convex } from "../convex-client.js";
 import { embed, embedBatch } from "../embeddings.js";
+import { isDatalessError, readVaultFile } from "./materialize.js";
 import { enumerateMarkdown, type VaultFile } from "./paths.js";
 
 /**
@@ -82,6 +82,12 @@ export interface SyncStats {
   embedFailures: number;
   /** Files present in the vault that could not be read this pass. */
   readFailures: number;
+  /**
+   * Subset of `readFailures` caused by iCloud eviction that survived a
+   * `brctl download`. Unlike a mid-write blip these do NOT heal on retry, so
+   * they warrant a loud, actionable warning instead of a silent retry loop.
+   */
+  datalessFailures: number;
 }
 
 export async function syncVault(opts: { runId: string; embedInline?: boolean }): Promise<SyncStats> {
@@ -95,6 +101,7 @@ export async function syncVault(opts: { runId: string; embedInline?: boolean }):
     orphansDeleted: 0,
     embedFailures: 0,
     readFailures: 0,
+    datalessFailures: 0,
   };
 
   // An empty walk means the vault was unreadable, not that every page was
@@ -124,14 +131,18 @@ async function syncFile(
 ): Promise<void> {
   let text: string;
   try {
-    text = await readFile(f.abs, "utf8");
-  } catch {
+    text = await readVaultFile(f.abs);
+  } catch (err) {
     // The file is still in the vault — we just couldn't read it this pass
     // (Obsidian/ingest rewrites are not atomic). Returning without marking it
     // seen used to make the orphan pass below treat it as deleted and evict it
     // from Convex, which is what silently drained the manifest and left
     // wiki_read's fallback with nothing to serve. Mark it seen and skip.
     stats.readFailures++;
+    // An iCloud-evicted page that even `brctl download` could not bring back is
+    // a different failure from a mid-write blip: retrying on a 30s timer will
+    // never fix it, so count it separately and let the caller say so out loud.
+    if (isDatalessError(err)) stats.datalessFailures++;
     try {
       await convex.mutation(api.wikiChunks.markFileRun, { sourcePath: f.rel, runId });
     } catch {
