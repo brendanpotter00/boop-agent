@@ -1,5 +1,6 @@
-import { readFile, stat } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import { join } from "node:path";
+import { readVaultFile } from "./materialize.js";
 import { enumerateMarkdown, vaultRoot } from "./paths.js";
 
 /**
@@ -53,7 +54,7 @@ export async function parseIndex(): Promise<IndexEntry[]> {
 
   let text = "";
   try {
-    text = await readFile(join(vaultRoot(), INDEX_REL), "utf8");
+    text = await readVaultFile(join(vaultRoot(), INDEX_REL));
   } catch {
     // NEVER cache a failed read. `index.md` is rewritten in place by the
     // vault's ingest workflow, so a read landing mid-rewrite fails even though

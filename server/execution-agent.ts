@@ -112,6 +112,20 @@ export interface SpawnOptions {
   name?: string;
   runtimeConfig?: RuntimeConfig;
   imageStorageIds?: string[];
+  /**
+   * Working directory for the agent. Defaults to the boop repo. Point it at the
+   * Obsidian vault to run that vault's own documented workflows — `cwd` is what
+   * decides which CLAUDE.md `settingSources: ["project"]` loads.
+   */
+  cwd?: string;
+  /** Extended thinking budget — raised for planning, left default for execution. */
+  maxThinkingTokens?: number;
+  /**
+   * Tools this agent must not use. Enforced by the runtime rather than by
+   * prompt instruction, so a planning agent is structurally incapable of
+   * writing rather than merely asked not to.
+   */
+  disallowedTools?: string[];
 }
 
 export type SpawnExecutionAgentOpts = SpawnOptions;
@@ -191,6 +205,9 @@ export async function spawnExecutionAgent(opts: SpawnExecutionAgentOpts): Promis
       claudeMcpServers: mcpServers,
       tools: runtimeTools,
       allowedTools,
+      disallowedTools: opts.disallowedTools,
+      cwd: opts.cwd,
+      maxThinkingTokens: opts.maxThinkingTokens,
       abortController: abort,
       mode: "execution",
       onText: async (text) => {

@@ -176,11 +176,27 @@ describe("fuse (the unified-surface seam)", () => {
   });
 });
 
-describe("read-only guarantee", () => {
-  it("exposes exactly the three read tools and no write tool", () => {
+// This suite used to assert the vault was read-only ("exactly three read tools
+// and no write tool"). That invariant was retired deliberately — the user
+// dictates notes over iMessage and needs them to land. What replaced it is a
+// narrower guarantee: writes exist, but they are confined to the vault and
+// cannot touch the schema layer.
+describe("vault write surface", () => {
+  it("exposes the read tools plus exactly the three intended write tools", () => {
     const names = createWikiTools().map((t) => t.name).sort();
-    expect(names).toEqual(["wiki_index", "wiki_read", "wiki_search"]);
-    expect(names.some((n) => /write|create|update|delete|edit|put|set/.test(n))).toBe(false);
+    expect(names).toEqual([
+      "wiki_append",
+      "wiki_edit",
+      "wiki_index",
+      "wiki_read",
+      "wiki_search",
+      "wiki_write",
+    ]);
+  });
+
+  it("has no delete tool — removing a page stays a human action", () => {
+    const names = createWikiTools().map((t) => t.name);
+    expect(names.some((n) => /delete|remove|rm|destroy/.test(n))).toBe(false);
   });
 });
 

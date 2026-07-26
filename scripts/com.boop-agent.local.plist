@@ -57,5 +57,22 @@
 
   <key>ProcessType</key>
   <string>Interactive</string>
+
+  <!--
+    Required when the wiki vault (WIKI_VAULT_PATH) lives in iCloud Drive.
+
+    With "Optimize Mac Storage" on, iCloud evicts file contents and leaves
+    "dataless" placeholders; reading one has to materialize it on demand.
+    launchd jobs do NOT get that right by default, and the restrictive policy is
+    inherited by every child process — including the `claude` CLI this server
+    spawns. Without this key, reads fail with EDEADLK, which macOS renders as
+    the thoroughly misleading "Resource deadlock avoided" and Node surfaces as
+    "Unknown system error -11". It looks exactly like a file lock held by
+    Obsidian or a sync daemon. It is not; `lsof` on the vault is empty.
+
+    See `man launchd.plist` and setiopolicy_np(3).
+  -->
+  <key>MaterializeDatalessFiles</key>
+  <true/>
 </dict>
 </plist>

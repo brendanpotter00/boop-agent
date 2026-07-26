@@ -82,8 +82,16 @@ export async function runClaudeAgent(request: RuntimeRunRequest): Promise<Runtim
       mcpServers,
       allowedTools: request.allowedTools,
       disallowedTools: request.disallowedTools,
+      // `cwd` was accepted on RuntimeRunRequest and honoured by the Codex
+      // runtime but silently dropped here, so every Claude agent ran in the
+      // boop repo. That matters because `settingSources: ["project"]` loads
+      // CLAUDE.md relative to cwd — pointing cwd at the Obsidian vault is what
+      // gives a wiki agent the vault's own operating manual (its reindex-raw /
+      // ingest / lint workflow definitions) instead of boop's.
+      ...(request.cwd ? { cwd: request.cwd, additionalDirectories: [request.cwd] } : {}),
       ...(request.mode === "execution" ? { settingSources: ["project"] as const } : {}),
       permissionMode: "bypassPermissions",
+      ...(request.maxThinkingTokens ? { maxThinkingTokens: request.maxThinkingTokens } : {}),
       abortController: request.abortController,
     },
   })) {

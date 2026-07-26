@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { api } from "../../convex/_generated/api.js";
 import { convex } from "../convex-client.js";
@@ -13,6 +13,7 @@ import {
   type VaultFile,
 } from "./paths.js";
 import { parseIndex, resolveSlug, slugMap } from "./index-cache.js";
+import { readVaultFile } from "./materialize.js";
 
 /**
  * The unified wiki search. There is exactly ONE search surface (`wikiSearch`)
@@ -62,20 +63,38 @@ interface LexHit {
 // load and this full scan becomes a fallback.
 const contentCache = new Map<string, { mtimeMs: number; text: string }>();
 
+/**
+ * Read failures during the last full-text scan. An unreadable page silently
+ * scoring 0 is indistinguishable from a page that genuinely doesn't match, so
+ * for weeks an entire iCloud-evicted vault looked like "no results" rather than
+ * like breakage. Counting them lets `wikiSearch` say so out loud.
+ */
+let lastScanReadFailures = 0;
+
+export function takeScanReadFailures(): number {
+  const n = lastScanReadFailures;
+  lastScanReadFailures = 0;
+  return n;
+}
+
 async function readCached(f: VaultFile): Promise<string> {
   let mtimeMs = 0;
   try {
     mtimeMs = (await stat(f.abs)).mtimeMs;
   } catch {
+    lastScanReadFailures++;
     return "";
   }
   const hit = contentCache.get(f.abs);
   if (hit && hit.mtimeMs === mtimeMs) return hit.text;
   let text = "";
   try {
-    text = await readFile(f.abs, "utf8");
+    text = await readVaultFile(f.abs);
   } catch {
-    text = "";
+    // Never cache an empty body: doing so pinned the page to "matches nothing"
+    // until its mtime changed, which for a read-only evicted file is never.
+    lastScanReadFailures++;
+    return "";
   }
   contentCache.set(f.abs, { mtimeMs, text });
   return text;
@@ -316,13 +335,23 @@ export async function wikiSearch(opts: {
     semanticPass(opts.query, opts.section, limit * 4),
   ]);
   const hits = fuse(lex, sem).slice(0, limit);
+  // Unreadable pages score 0, which is indistinguishable from "didn't match".
+  // Say so rather than letting a broken vault masquerade as an empty one.
+  const unreadable = takeScanReadFailures();
+  if (unreadable > 0) {
+    console.warn(`[wiki] search scanned past ${unreadable} unreadable page(s)`);
+  }
+  const caveat =
+    unreadable > 0
+      ? `\n\n⚠️ ${unreadable} page(s) could not be read this pass, so these results are incomplete.`
+      : "";
   if (hits.length === 0) {
-    return `No wiki pages matched "${opts.query}". Try wiki_index to browse the catalog.`;
+    return `No wiki pages matched "${opts.query}". Try wiki_index to browse the catalog.${caveat}`;
   }
   const body = hits
     .map((h) => `• ${h.rel} — ${h.snippet}  [${h.why}]`)
     .join("\n");
-  return `Top ${hits.length} wiki pages for "${opts.query}" (read with wiki_read):\n${body}`;
+  return `Top ${hits.length} wiki pages for "${opts.query}" (read with wiki_read):\n${body}${caveat}`;
 }
 
 export async function wikiRead(opts: { path: string }): Promise<string> {
@@ -344,7 +373,7 @@ export async function wikiRead(opts: { path: string }): Promise<string> {
   }
   let text: string;
   try {
-    text = await readFile(abs, "utf8");
+    text = await readVaultFile(abs);
   } catch (err) {
     // Filesystem unreachable (e.g. remote deploy) — fall back to the page
     // content cached in Convex by the sync pipeline.

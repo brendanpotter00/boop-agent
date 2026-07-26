@@ -6,6 +6,7 @@ import { createClaudeMcpServer } from "./runtimes/claude.js";
 import { defineRuntimeTool } from "./runtimes/tool.js";
 import { runtimeText, type RuntimeTool } from "./runtimes/types.js";
 import type { RuntimeConfig } from "./runtime-config.js";
+import { wikiExecutorContext } from "./wiki/workflow-tools.js";
 
 function randomId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -88,16 +89,25 @@ export function createDraftDecisionTools(
           draftId: args.draftId,
           status: "sent",
         });
-        const task = `Execute this approved draft. Use the matching integration tool to actually send/create it.
+
+        // A staged wiki plan is not an outbound message — it's a set of file
+        // operations against the user's vault, and it only means anything if
+        // the executor runs where the vault's own CLAUDE.md applies. Route it
+        // with cwd set to the vault instead of through the generic path.
+        const wiki = draft.kind.startsWith("wiki.") ? wikiExecutorContext() : null;
+        const task = wiki
+          ? `${wiki.brief}\n\n--- APPROVED PLAN ---\nsummary: ${draft.summary}\npayload JSON: ${draft.payload}`
+          : `Execute this approved draft. Use the matching integration tool to actually send/create it.
 kind: ${draft.kind}
 summary: ${draft.summary}
 payload JSON: ${draft.payload}`;
         const res = await spawnExecutionAgent({
           task,
-          integrations: args.integrations,
+          integrations: wiki ? ["wiki"] : args.integrations,
           conversationId,
           name: `send:${draft.kind}`,
           runtimeConfig,
+          ...(wiki ? { cwd: wiki.cwd } : {}),
         });
         return runtimeText(`Draft ${args.draftId} executed.\n\n${res.result}`);
       },

@@ -3,8 +3,12 @@ import { readdir } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 /**
- * Read-only filesystem access to the Obsidian vault that backs boop's wiki
- * tools. The vault is the SOURCE OF TRUTH; nothing here ever writes to it.
+ * Filesystem access to the Obsidian vault that backs boop's wiki tools.
+ *
+ * The vault used to be strictly read-only here. That changed deliberately: the
+ * agent now captures dictated notes into `raw/` and maintains synthesis pages
+ * under `wiki/`, so writes are a first-class path (see `safeResolveForWrite`).
+ * The containment rules are unchanged and now matter more, not less.
  *
  * The vault root is configured via `WIKI_VAULT_PATH` and is NEVER hardcoded —
  * boop-agent is a public repo, so no real paths may land in committed code.
@@ -96,6 +100,35 @@ export function safeResolve(relPath: string): string {
     throw new Error("path escapes the vault");
   }
   return real;
+}
+
+/**
+ * The vault's own `CLAUDE.md` is the schema layer. Per its §2 layering table it
+ * is "co-evolved": the user edits it when scope changes and the agent "may
+ * propose edits but do not change unilaterally". Enforce that here rather than
+ * trusting a prompt to remember it.
+ */
+const WRITE_DENYLIST = new Set(["CLAUDE.md"]);
+
+/**
+ * Resolve a vault-relative path for WRITING, applying the same containment
+ * guarantees as `safeResolve` plus the schema-layer denylist.
+ *
+ * Both `raw/**` and `wiki/**` are writable. That is a deliberate widening of
+ * the vault's §2 rule that `raw/` is "immutable to you": the agent's job now
+ * includes landing the user's dictated notes as raw sources, which is the
+ * documented input to the `ingest` workflow. Everything else about the layering
+ * still holds — a raw capture is a new file, never an edit of one the user wrote.
+ */
+export function safeResolveForWrite(relPath: string): string {
+  const abs = safeResolve(relPath);
+  const rel = normalizeRel(relative(vaultRoot(), abs));
+  if (WRITE_DENYLIST.has(rel)) {
+    throw new Error(
+      `${rel} is the vault's schema layer — propose changes to the user instead of writing it.`,
+    );
+  }
+  return abs;
 }
 
 /**

@@ -82,6 +82,7 @@ export const RUNTIME_ALIASES: Record<string, RuntimeName> = {
 export const MODEL_ALIASES: Record<string, string> = {
   opus: "claude-opus-4-7",
   "opus 4.7": "claude-opus-4-7",
+  "opus 5": "claude-opus-5",
   sonnet: "claude-sonnet-4-6",
   "sonnet 4.6": "claude-sonnet-4-6",
   haiku: "claude-haiku-4-5-20251001",
@@ -90,6 +91,10 @@ export const MODEL_ALIASES: Record<string, string> = {
 
 export const KNOWN_MODELS = new Set<string>([
   "claude-opus-4-7",
+  // Selectable but not the default for bare "opus": the installed Agent SDK /
+  // CLI has to accept the id, and an unrecognised model fails the whole run.
+  // Switch with `set_model opus 5` (or WIKI_PLANNER_MODEL for planning only).
+  "claude-opus-5",
   "claude-sonnet-4-6",
   "claude-haiku-4-5-20251001",
 ]);
