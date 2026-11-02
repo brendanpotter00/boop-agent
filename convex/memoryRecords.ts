@@ -297,15 +297,18 @@ export const setEmbedding = mutation({
 export const countsByTier = query({
   args: {},
   handler: async (ctx) => {
-    const all = await ctx.db.query("memoryRecords").order("desc").take(COUNTS_SCAN_LIMIT);
-    const active = all.filter((m) => m.lifecycle === "active");
+    // Active rows only: archived/pruned rows keep their embeddings, and once
+    // there are enough of them a full scan trips the 16 MiB read limit.
+    const active = await ctx.db
+      .query("memoryRecords")
+      .withIndex("by_lifecycle", (q) => q.eq("lifecycle", "active"))
+      .order("desc")
+      .take(COUNTS_SCAN_LIMIT);
     return {
       short: active.filter((m) => m.tier === "short").length,
       long: active.filter((m) => m.tier === "long").length,
       permanent: active.filter((m) => m.tier === "permanent").length,
-      archived: all.filter((m) => m.lifecycle === "archived").length,
-      pruned: all.filter((m) => m.lifecycle === "pruned").length,
-      truncated: all.length === COUNTS_SCAN_LIMIT,
+      truncated: active.length === COUNTS_SCAN_LIMIT,
       scanLimit: COUNTS_SCAN_LIMIT,
     };
   },

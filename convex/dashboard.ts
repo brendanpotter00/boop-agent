@@ -8,21 +8,25 @@ const METRICS_SCAN_LIMIT = 5000;
 export const metrics = query({
   args: {},
   handler: async (ctx) => {
-    const [messages, memories, agents, automationRuns, usageRecords] = await Promise.all([
+    const [messages, activeMem, agents, automationRuns, usageRecords] = await Promise.all([
       ctx.db.query("messages").order("desc").take(METRICS_SCAN_LIMIT),
-      ctx.db.query("memoryRecords").order("desc").take(METRICS_SCAN_LIMIT),
+      // Active rows only: every memory carries an embedding, and reading the
+      // archived/pruned ones too blows Convex's 16 MiB per-function read limit.
+      ctx.db
+        .query("memoryRecords")
+        .withIndex("by_lifecycle", (q) => q.eq("lifecycle", "active"))
+        .order("desc")
+        .take(METRICS_SCAN_LIMIT),
       ctx.db.query("executionAgents").order("desc").take(METRICS_SCAN_LIMIT),
       ctx.db.query("automationRuns").order("desc").take(METRICS_SCAN_LIMIT),
       ctx.db.query("usageRecords").order("desc").take(METRICS_SCAN_LIMIT),
     ]);
     const truncated =
       messages.length === METRICS_SCAN_LIMIT ||
-      memories.length === METRICS_SCAN_LIMIT ||
+      activeMem.length === METRICS_SCAN_LIMIT ||
       agents.length === METRICS_SCAN_LIMIT ||
       automationRuns.length === METRICS_SCAN_LIMIT ||
       usageRecords.length === METRICS_SCAN_LIMIT;
-
-    const activeMem = memories.filter((m) => m.lifecycle === "active");
 
     // Build daily buckets across all time so the chart has something to draw.
     const buckets = new Map<

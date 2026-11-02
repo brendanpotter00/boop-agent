@@ -66,6 +66,16 @@ function isDemoId(value?: string | null): boolean {
   return typeof value === "string" && value.startsWith(DEMO_PREFIX);
 }
 
+// Index range over "demo:"-prefixed memory IDs (";" sorts right after ":").
+// A full scan would read every real memory's embedding and trip Convex's
+// 16 MiB per-function read limit.
+function demoMemories(ctx: QueryCtx | MutationCtx) {
+  return ctx.db
+    .query("memoryRecords")
+    .withIndex("by_memory_id", (q) => q.gte("memoryId", DEMO_PREFIX).lt("memoryId", "demo;"))
+    .take(SCAN_LIMIT);
+}
+
 function ago(now: number, days: number, offset = 0): number {
   return now - days * DAY - offset;
 }
@@ -120,7 +130,7 @@ async function demoCounts(ctx: QueryCtx | MutationCtx): Promise<DemoCounts> {
     ctx.db.query("messages").order("desc").take(SCAN_LIMIT),
     ctx.db.query("executionAgents").order("desc").take(SCAN_LIMIT),
     ctx.db.query("agentLogs").order("desc").take(SCAN_LIMIT),
-    ctx.db.query("memoryRecords").order("desc").take(SCAN_LIMIT),
+    demoMemories(ctx),
     ctx.db.query("memoryEvents").order("desc").take(SCAN_LIMIT),
     ctx.db.query("automations").order("desc").take(SCAN_LIMIT),
     ctx.db.query("automationRuns").order("desc").take(SCAN_LIMIT),
@@ -213,7 +223,7 @@ async function deleteDemoRows(ctx: MutationCtx): Promise<DemoCounts> {
     counts.agents += 1;
   }
 
-  const memories = await ctx.db.query("memoryRecords").order("desc").take(SCAN_LIMIT);
+  const memories = await demoMemories(ctx);
   for (const row of memories) {
     if (!isDemoId(row.memoryId)) continue;
     await ctx.db.delete(row._id);
