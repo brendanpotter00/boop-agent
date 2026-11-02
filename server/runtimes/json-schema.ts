@@ -20,17 +20,20 @@ export function zodShapeToJsonSchema(shape: z.ZodRawShape): JsonSchema {
   };
 }
 
-function zodToJsonSchema(schema: z.ZodTypeAny): { schema: JsonSchema; optional: boolean } {
+function zodToJsonSchema(input: z.core.$ZodType): { schema: JsonSchema; optional: boolean } {
+  // zod 4 types shape values and .unwrap() as the core type; every schema
+  // Boop builds is a classic `z.*` instance, so narrow once here.
+  const schema = input as z.ZodTypeAny;
   if (schema instanceof z.ZodOptional) {
-    const inner = zodToJsonSchema(schema._def.innerType);
+    const inner = zodToJsonSchema(schema.unwrap());
     return { schema: inner.schema, optional: true };
   }
   if (schema instanceof z.ZodDefault) {
-    const inner = zodToJsonSchema(schema._def.innerType);
+    const inner = zodToJsonSchema(schema.unwrap());
     return { schema: inner.schema, optional: true };
   }
   if (schema instanceof z.ZodNullable) {
-    const inner = zodToJsonSchema(schema._def.innerType);
+    const inner = zodToJsonSchema(schema.unwrap());
     return { schema: { ...inner.schema, nullable: true }, optional: inner.optional };
   }
   if (schema instanceof z.ZodString) {
@@ -44,12 +47,12 @@ function zodToJsonSchema(schema: z.ZodTypeAny): { schema: JsonSchema; optional: 
   }
   if (schema instanceof z.ZodEnum) {
     return {
-      schema: withDescription(schema, { type: "string", enum: schema._def.values }),
+      schema: withDescription(schema, { type: "string", enum: schema.options }),
       optional: false,
     };
   }
   if (schema instanceof z.ZodArray) {
-    const item = zodToJsonSchema(schema._def.type);
+    const item = zodToJsonSchema(schema.element);
     return {
       schema: withDescription(schema, { type: "array", items: item.schema }),
       optional: false,
