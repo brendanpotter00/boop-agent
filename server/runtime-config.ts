@@ -80,21 +80,27 @@ export const RUNTIME_ALIASES: Record<string, RuntimeName> = {
 
 // Backward-compatible names kept for existing imports and prompt text.
 export const MODEL_ALIASES: Record<string, string> = {
-  opus: "claude-opus-4-7",
-  "opus 4.7": "claude-opus-4-7",
+  opus: "claude-opus-5-5",
+  "opus 5.5": "claude-opus-5-5",
   "opus 5": "claude-opus-5",
-  sonnet: "claude-sonnet-4-6",
+  "opus 4.7": "claude-opus-4-7",
+  sonnet: "claude-sonnet-5-5",
+  "sonnet 5.5": "claude-sonnet-5-5",
   "sonnet 4.6": "claude-sonnet-4-6",
-  haiku: "claude-haiku-4-5-20251001",
+  haiku: "claude-haiku-5-5",
+  "haiku 5.5": "claude-haiku-5-5",
   "haiku 4.5": "claude-haiku-4-5-20251001",
 };
 
 export const KNOWN_MODELS = new Set<string>([
-  "claude-opus-4-7",
-  // Selectable but not the default for bare "opus": the installed Agent SDK /
-  // CLI has to accept the id, and an unrecognised model fails the whole run.
-  // Switch with `set_model opus 5` (or WIKI_PLANNER_MODEL for planning only).
+  // Claude Opus 5.5 needs Claude Code 2.1.280+, i.e. Agent SDK 0.3.280+: the
+  // API rejects older CLIs for this model, which fails the whole run.
+  "claude-opus-5-5",
+  "claude-sonnet-5-5",
+  "claude-haiku-5-5",
+  // Older models stay selectable by explicit name ("use opus 4.7").
   "claude-opus-5",
+  "claude-opus-4-7",
   "claude-sonnet-4-6",
   "claude-haiku-4-5-20251001",
 ]);
@@ -153,7 +159,7 @@ function resolveRuntimeValue(input: string | null): RuntimeName {
 }
 
 function claudeEnvFallback(): string {
-  return process.env.BOOP_MODEL ?? "claude-sonnet-4-6";
+  return process.env.BOOP_MODEL ?? "claude-sonnet-5-5";
 }
 
 function codexEnvFallback(): string {

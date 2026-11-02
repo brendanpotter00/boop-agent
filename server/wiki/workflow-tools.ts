@@ -53,7 +53,7 @@ function plannerModel(runtimeConfig?: RuntimeConfig): string {
   if (configured) return configured;
   const current = runtimeConfig?.model;
   if (current?.startsWith("claude-opus")) return current;
-  return "claude-opus-4-7";
+  return "claude-opus-5-5";
 }
 
 function plannerConfig(runtimeConfig?: RuntimeConfig): RuntimeConfig | undefined {

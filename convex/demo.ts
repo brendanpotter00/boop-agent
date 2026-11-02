@@ -850,7 +850,7 @@ async function seedAgentsAndLogs(ctx: MutationCtx, now: number) {
       model:
         runtime === "codex"
           ? pick(["gpt-5.5", "gpt-5.4", "gpt-5.3-codex"], index)
-          : pick(["claude-sonnet-4-6", "claude-opus-4-7", "claude-haiku-4-5-20251001"], index),
+          : pick(["claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5"], index),
       reasoningEffort: runtime === "codex" ? pick(["medium", "high", "xhigh"], index) : undefined,
       billingMode,
       status,
@@ -1201,7 +1201,7 @@ async function seedUsageRecords(ctx: MutationCtx, now: number) {
       model:
         runtime === "codex"
           ? pick(["gpt-5.5", "gpt-5.4", "gpt-5.3-codex"], index)
-          : pick(["claude-sonnet-4-6", "claude-opus-4-7"], index),
+          : pick(["claude-sonnet-5-5", "claude-opus-5-5"], index),
       inputTokens,
       outputTokens,
       cacheReadTokens,

@@ -10,14 +10,14 @@ const EXAMPLE_PATH = resolve(ROOT, ".env.example");
 
 type RuntimeChoice = "claude" | "codex";
 
-const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6";
+const DEFAULT_CLAUDE_MODEL = "claude-sonnet-5-5";
 const DEFAULT_CODEX_MODEL = "gpt-5.5";
 const DEFAULT_CODEX_REASONING_EFFORT = "medium";
 
 const CLAUDE_MODEL_CHOICES = [
-  { title: "claude-sonnet-4-6 (recommended)", value: "claude-sonnet-4-6" },
-  { title: "claude-opus-4-6 (slowest, most capable)", value: "claude-opus-4-6" },
-  { title: "claude-haiku-4-5 (fastest, cheapest)", value: "claude-haiku-4-5" },
+  { title: "claude-sonnet-5-5 (recommended)", value: "claude-sonnet-5-5" },
+  { title: "claude-opus-5-5 (slowest, most capable)", value: "claude-opus-5-5" },
+  { title: "claude-haiku-5-5 (fastest, cheapest)", value: "claude-haiku-5-5" },
 ];
 
 const CODEX_MODEL_CHOICES = [

@@ -67,9 +67,9 @@ const RUNTIME_OPTIONS: Option<RuntimeChoice>[] = [
 ];
 
 const CLAUDE_MODELS: Option[] = [
-  { value: "claude-sonnet-4-6", label: "Sonnet 4.6" },
-  { value: "claude-opus-4-7", label: "Opus 4.7" },
-  { value: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
+  { value: "claude-sonnet-5-5", label: "Sonnet 5.5" },
+  { value: "claude-opus-5-5", label: "Opus 5.5" },
+  { value: "claude-haiku-5-5", label: "Haiku 5.5" },
 ];
 
 const CODEX_MODELS: Option[] = [
@@ -197,6 +197,8 @@ export function SettingsPanel({ isDark }: { isDark: boolean }) {
 
 function SettingsRuntimeBadge({ isDark }: { isDark: boolean }) {
   const storedRuntime = useQuery(api.settings.get, { key: "runtime" });
+  const storedClaudeModel = useQuery(api.settings.get, { key: "model" });
+  const storedHostedModel = useQuery(api.settings.get, { key: "codex_model" });
   const [serverConfig, setServerConfig] = useState<RuntimeConfigSnapshot | null>(null);
 
   useEffect(() => {
@@ -215,7 +217,7 @@ function SettingsRuntimeBadge({ isDark }: { isDark: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, [storedRuntime]);
+  }, [storedRuntime, storedClaudeModel, storedHostedModel]);
 
   const runtime: RuntimeProvider =
     storedRuntime === "claude" || storedRuntime === "codex"
