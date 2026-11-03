@@ -66,7 +66,8 @@ async function doSync(reason: string): Promise<void> {
       stats.filesChanged ||
       stats.orphansDeleted ||
       stats.embedFailures ||
-      stats.readFailures
+      stats.readFailures ||
+      stats.fileFailures
     ) {
       console.log(`[wiki] sync (${reason})`, stats);
     }

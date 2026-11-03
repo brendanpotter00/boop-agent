@@ -99,6 +99,8 @@ export interface SyncStats {
    * they warrant a loud, actionable warning instead of a silent retry loop.
    */
   datalessFailures: number;
+  /** Files whose sync threw (e.g. a rejected upsert); they keep their old index entry. */
+  fileFailures: number;
 }
 
 export async function syncVault(opts: { runId: string; embedInline?: boolean }): Promise<SyncStats> {
@@ -113,6 +115,7 @@ export async function syncVault(opts: { runId: string; embedInline?: boolean }):
     embedFailures: 0,
     readFailures: 0,
     datalessFailures: 0,
+    fileFailures: 0,
   };
 
   // An empty walk means the vault was unreadable, not that every page was
@@ -121,7 +124,22 @@ export async function syncVault(opts: { runId: string; embedInline?: boolean }):
   if (files.length === 0) return stats;
 
   for (const f of files) {
-    await syncFile(f, opts.runId, embedInline, stats);
+    try {
+      await syncFile(f, opts.runId, embedInline, stats);
+    } catch (err) {
+      // One bad page must not abort the run: that let a single transcript
+      // block every later file and the orphan pass for weeks. Mark it seen so
+      // the orphan pass keeps its last good index entry. If even that write
+      // fails, Convex itself is down — abort as before, because an unmarked
+      // file would be orphan-deleted.
+      try {
+        await convex.mutation(api.wikiChunks.markFileRun, { sourcePath: f.rel, runId: opts.runId });
+      } catch {
+        throw err;
+      }
+      stats.fileFailures++;
+      console.warn(`[wiki] sync of ${f.rel} failed; keeping its previous index entry:`, err);
+    }
   }
 
   // Orphan delete: any manifest file not touched this run is gone from the vault.
