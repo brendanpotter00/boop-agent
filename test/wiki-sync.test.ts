@@ -41,6 +41,15 @@ describe("chunkMarkdown", () => {
     expect(chunkMarkdown("")).toEqual([]);
     expect(chunkMarkdown("   \n\n  \n")).toEqual([]);
   });
+
+  it("never splits an emoji when carrying overlap into the next chunk", () => {
+    // The trailing "x" puts the overlap cut point mid-emoji. A lone surrogate
+    // makes Convex reject the whole upsert ("Invalid arguments provided").
+    const chunks = chunkMarkdown(`${"😀".repeat(2000)}x`);
+    const loneSurrogate = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const c of chunks) expect(loneSurrogate.test(c.content)).toBe(false);
+  });
 });
 
 describe("semanticPass degradation", () => {

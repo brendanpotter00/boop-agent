@@ -27,6 +27,17 @@ function sha256(s: string): string {
   return createHash("sha256").update(s).digest("hex");
 }
 
+/**
+ * The last OVERLAP_CHARS of a chunk, carried into the next one. slice() counts
+ * UTF-16 units, so the cut can land inside an emoji; a lone surrogate makes
+ * Convex reject the whole upsert ("Invalid arguments provided"), which aborted
+ * every sync run at the same file.
+ */
+function overlapTail(s: string): string {
+  const tail = s.slice(-OVERLAP_CHARS);
+  return /^[\uDC00-\uDFFF]/.test(tail) ? tail.slice(1) : tail;
+}
+
 function titleOf(text: string, rel: string): string {
   const m = /^#\s+(.+)$/m.exec(text);
   if (m) return m[1].trim();
@@ -55,7 +66,7 @@ export function chunkMarkdown(text: string): Chunk[] {
     if (h && bufLen > MAX_CHARS / 3) {
       // Start a new chunk at a heading boundary once we have some content.
       flush();
-      const tail = buf.join("\n").slice(-OVERLAP_CHARS);
+      const tail = overlapTail(buf.join("\n"));
       buf = tail ? [tail] : [];
       bufLen = tail.length;
     }
@@ -64,7 +75,7 @@ export function chunkMarkdown(text: string): Chunk[] {
     bufLen += line.length + 1;
     if (bufLen >= MAX_CHARS) {
       flush();
-      const tail = buf.join("\n").slice(-OVERLAP_CHARS);
+      const tail = overlapTail(buf.join("\n"));
       buf = tail ? [tail] : [];
       bufLen = tail.length;
     }
